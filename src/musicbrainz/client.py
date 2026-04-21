@@ -52,6 +52,19 @@ class MusicBrainzClient:
         with_date = [r for r in recordings if r.get("first-release-date")]
         return with_date[0] if with_date else recordings[0]
 
+    def search_recording_candidates(self, artist: str, track: str) -> list[dict]:
+        """Return up to 5 raw recording candidates without picking one.
+
+        Used by the metadata provider to probe AcousticBrainz for the
+        best MBID when the primary MBID returns 404 in AB.
+        """
+        query = f'recording:"{_escape(track)}" AND artist:"{_escape(artist)}"'
+        try:
+            data = self._get("recording", query=query, limit=5, inc="releases+tags")
+        except requests.HTTPError:
+            return []
+        return data.get("recordings") or []
+
     def get_recording(self, mbid: str) -> dict | None:
         """Fetch a recording by MBID, including releases and tags."""
         try:

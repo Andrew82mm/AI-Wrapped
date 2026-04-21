@@ -86,6 +86,14 @@ def resolve_track_metadata(
 
         results = {name: f.result() for name, f in futures.items()}
 
+    # If AB returned nothing for our MBID, try other MB candidates —
+    # Last.fm MBIDs often point to a different recording than AB indexed.
+    if mbid and not results.get("ab_high"):
+        ab_mbid = _find_ab_mbid(artist, track, mbid, mb, ab)
+        if ab_mbid and ab_mbid != mbid:
+            results["ab_high"] = ab.get_high_level(ab_mbid)
+            results["ab_low"] = ab.get_low_level(ab_mbid)
+
     high = results.get("ab_high")
     if high:
         meta.mood = extract_mood(high)
@@ -136,6 +144,32 @@ def resolve_track_metadata_cached(
         max_age_hours=max_age_hours,
     )
     return TrackMetadata(**payload)
+
+
+def _find_ab_mbid(
+    artist: str,
+    track: str,
+    skip_mbid: str,
+    mb: MusicBrainzClient,
+    ab: AcousticBrainzClient,
+) -> str | None:
+    """Search MB for up to 5 recording candidates and return the first
+    MBID that AcousticBrainz actually has data for.
+
+    Skips `skip_mbid` since the caller already knows it returns 404.
+    AB probes run in parallel — no rate limit on AB side.
+    """
+    candidates = mb.search_recording_candidates(artist, track)
+    mbids = [r["id"] for r in candidates if r.get("id") and r["id"] != skip_mbid]
+    if not mbids:
+        return None
+
+    with ThreadPoolExecutor(max_workers=len(mbids)) as pool:
+        probe = {pool.submit(ab.get_high_level, m): m for m in mbids}
+        for future in as_completed(probe):
+            if future.result() is not None:
+                return probe[future]
+    return None
 
 
 def _safe(s: str) -> str:
