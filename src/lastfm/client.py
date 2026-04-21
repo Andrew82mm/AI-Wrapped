@@ -118,6 +118,23 @@ class LastFMClient:
         except Exception:
             return []
 
+    def get_similar_artists(self, artist: str, limit: int = 20) -> list[dict]:
+        """Return artists similar to `artist` with match scores in [0, 1].
+
+        Each item: {"name": str, "match": float}. Returns [] on error.
+        """
+        try:
+            data = self._get("artist.getSimilar", artist=artist, limit=limit)
+            items = data["similarartists"]["artist"]
+            if isinstance(items, dict):
+                items = [items]
+            return [
+                {"name": a["name"], "match": float(a.get("match", 0.0))}
+                for a in items
+            ]
+        except Exception:
+            return []
+
     def get_artist_tags(self, artist: str, limit: int = 5) -> list[str]:
         """Return top genre tags for an artist, filtered by quality.
 
