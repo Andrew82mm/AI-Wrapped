@@ -42,8 +42,6 @@ from src.features.binge import binge_weeks
 from src.features.time_profile import time_signature
 from src.features.artist_loyalty import artist_loyalty
 from src.features.discovery import discovery_rate
-from src.features.mood_trajectory import mood_trajectory
-from src.features.context_switch import context_switches
 from src.features.neighbours import musical_roommates
 from src.features.guilty_pleasures import guilty_pleasures
 from src.features.listening_style import listening_style
@@ -214,9 +212,6 @@ def run_features(
     if verbose:
         _header("FEATURES")
 
-    meta_index = {(m.artist, m.track): m for m in track_metas}
-    meta_lookup = lambda a, t: meta_index.get((a, t))
-
     top_artists_names = df_top_artists["artist"].tolist()
     all_artists = set(df_all["artist"].unique().tolist()) if not df_all.empty else set()
 
@@ -226,8 +221,6 @@ def run_features(
         "time_signature":     time_signature(df_all),
         "artist_loyalty":     artist_loyalty(df_all),
         "discovery_rate":     discovery_rate(df_all),
-        "mood_trajectory":    mood_trajectory(df_all, track_metas),
-        "context_switches":   context_switches(sessions, meta_lookup),
         "listening_style":    listening_style(df_all),
         "guilty_pleasures":   guilty_pleasures(df_all),
         "artifacts":          year_artifacts(df_all, sessions),
