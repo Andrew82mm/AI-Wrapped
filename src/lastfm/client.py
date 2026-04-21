@@ -100,6 +100,24 @@ class LastFMClient:
         data = self._get("user.getWeeklyChartList", user=username)
         return data["weeklychartlist"]["chart"]
 
+    def get_track_tags(self, artist: str, track: str, limit: int = 5) -> list[str]:
+        """Return top tags for a specific track, filtered by the same
+        quality rule as get_artist_tags (count >= mean). Returns [] on error.
+        """
+        try:
+            data = self._get("track.getTopTags", artist=artist, track=track)
+            tags = data["toptags"]["tag"]
+            if isinstance(tags, dict):
+                tags = [tags]
+            counts = [int(t["count"]) for t in tags]
+            if not counts:
+                return []
+            mean_count = sum(counts) / len(counts)
+            filtered = [t["name"].lower() for t in tags if int(t["count"]) >= mean_count]
+            return filtered[:limit]
+        except Exception:
+            return []
+
     def get_artist_tags(self, artist: str, limit: int = 5) -> list[str]:
         """Return top genre tags for an artist, filtered by quality.
 
