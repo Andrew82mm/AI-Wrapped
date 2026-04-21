@@ -62,6 +62,7 @@ STAGE_ALIASES = {
 # --- plumbing ---------------------------------------------------------------
 
 def _parse_stages(raw: str) -> set[str]:
+    """Expand a comma-separated stage string into a set of canonical stage names."""
     stages: set[str] = set()
     for chunk in raw.split(","):
         key = chunk.strip().lower()
@@ -95,6 +96,7 @@ def _parse_period(raw: str | None, df=None) -> Period | None:
 
 
 def _header(title: str) -> None:
+    """Print a section divider with a title to stdout."""
     print("\n" + "=" * 60)
     print(title)
 
@@ -245,6 +247,7 @@ def run_features(
 # --- main -------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse CLI arguments, run the requested pipeline stages, and return an exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--stages", default="all",

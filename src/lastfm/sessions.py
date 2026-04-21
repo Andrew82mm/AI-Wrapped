@@ -32,14 +32,17 @@ class Session:
 
     @property
     def hour(self) -> int:
+        """Hour of the day the session started (0-23)."""
         return self.start.hour
 
     @property
     def weekday(self) -> str:
+        """Full weekday name of the session's start time (e.g. 'Monday')."""
         return self.start.strftime("%A")
 
     @property
     def is_weekday(self) -> bool:
+        """True if the session started on Monday–Friday."""
         return self.start.weekday() < 5
 
 
@@ -113,6 +116,7 @@ TIME_SLOTS = {
 
 
 def _slot(hour: int) -> str:
+    """Map an hour (0-23) to a TIME_SLOTS key (night/morning/…/late_night)."""
     for name, (lo, hi) in TIME_SLOTS.items():
         if lo <= hour < hi:
             return name

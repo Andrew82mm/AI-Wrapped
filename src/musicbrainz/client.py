@@ -14,6 +14,11 @@ class MusicBrainzClient:
     """
 
     def __init__(self, contact: str, app_name: str = "AI-Wrapped", app_version: str = "0.1"):
+        """Set up the session with the MB-required User-Agent header.
+
+        contact must be an email or URL per MusicBrainz policy; without it
+        requests may be blocked.
+        """
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": f"{app_name}/{app_version} ( {contact} )",
@@ -22,12 +27,14 @@ class MusicBrainzClient:
         self._last_request_at: float = 0.0
 
     def _throttle(self) -> None:
+        """Sleep if needed to enforce the 1 req/sec MusicBrainz rate limit."""
         elapsed = time.time() - self._last_request_at
         if elapsed < MIN_INTERVAL:
             time.sleep(MIN_INTERVAL - elapsed)
         self._last_request_at = time.time()
 
     def _get(self, path: str, **params) -> dict:
+        """Throttle, then GET a MusicBrainz endpoint, returning parsed JSON."""
         self._throttle()
         params.setdefault("fmt", "json")
         resp = self.session.get(f"{BASE_URL}/{path}", params=params)
@@ -100,10 +107,12 @@ def extract_tags(recording: dict, top_n: int = 5) -> list[str]:
 
 
 def _escape(s: str) -> str:
+    """Escape double quotes in a Lucene query string."""
     return s.replace('"', '\\"')
 
 
 def _year_from_date(date_str: str) -> int | None:
+    """Parse a YYYY[-MM[-DD]] date string and return the year, or None."""
     if not date_str or len(date_str) < 4:
         return None
     try:

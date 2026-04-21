@@ -14,6 +14,7 @@ class GeniusClient:
     """
 
     def __init__(self, access_token: str):
+        """Initialise the session with the Genius Bearer token."""
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {access_token}",
@@ -21,6 +22,7 @@ class GeniusClient:
         })
 
     def _get(self, path: str, **params) -> dict | None:
+        """GET a Genius endpoint, returning the inner response dict or None on 404."""
         resp = self.session.get(f"{BASE_URL}/{path}", params=params)
         if resp.status_code == 404:
             return None

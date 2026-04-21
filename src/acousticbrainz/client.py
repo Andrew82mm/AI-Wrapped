@@ -13,9 +13,11 @@ class AcousticBrainzClient:
     """
 
     def __init__(self):
+        """Initialise a shared requests session for all AB calls."""
         self.session = requests.Session()
 
     def _get(self, path: str) -> dict | None:
+        """GET a path from the AB API, returning None on 404."""
         resp = self.session.get(f"{BASE_URL}/{path}")
         if resp.status_code == 404:
             return None

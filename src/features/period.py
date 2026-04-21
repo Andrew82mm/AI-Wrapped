@@ -15,6 +15,7 @@ class Period:
     end: datetime
 
     def contains(self, ts: datetime) -> bool:
+        """Return True if ts falls within this period (inclusive on both ends)."""
         return self.start <= ts <= self.end
 
 
@@ -30,6 +31,7 @@ def filter_df(df: pd.DataFrame, period: Period | None) -> pd.DataFrame:
 
 
 def year_period(year: int) -> Period:
+    """Build a Period spanning the full calendar year from Jan 1 to Dec 31."""
     return Period(
         name=str(year),
         start=datetime(year, 1, 1),

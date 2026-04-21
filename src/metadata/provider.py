@@ -29,6 +29,7 @@ class TrackMetadata:
     sources: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        """Serialise the dataclass to a plain dict for JSON caching."""
         return asdict(self)
 
 
@@ -173,4 +174,5 @@ def _find_ab_mbid(
 
 
 def _safe(s: str) -> str:
+    """Normalise a string to a safe filesystem/cache-key fragment (max 80 chars)."""
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in s)[:80]

@@ -12,6 +12,7 @@ _SLOTS = {
 
 
 def _slot(hour: int) -> str:
+    """Map an hour (0-23) to a _SLOTS key (night/morning/…/late_night)."""
     for name, hours in _SLOTS.items():
         if hour in hours:
             return name

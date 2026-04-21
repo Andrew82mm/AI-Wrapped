@@ -7,6 +7,7 @@ BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 
 class LastFMClient:
     def __init__(self, api_key: str):
+        """Initialise the client with a Last.fm API key."""
         self.api_key = api_key
         self.session = requests.Session()
 
@@ -89,6 +90,7 @@ class LastFMClient:
         return data["topalbums"]["album"]
 
     def get_user_info(self, username: str) -> dict:
+        """Return the Last.fm user profile dict for `username`."""
         data = self._get("user.getInfo", user=username)
         return data["user"]
 
