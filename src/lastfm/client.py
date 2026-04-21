@@ -73,10 +73,15 @@ class LastFMClient:
         data = self._get("user.getWeeklyChartList", user=username)
         return data["weeklychartlist"]["chart"]
 
-    def get_artist_tags(self, artist: str) -> list[str]:
+    def get_artist_tags(self, artist: str, limit: int = 5) -> list[str]:
         try:
             data = self._get("artist.getTopTags", artist=artist)
             tags = data["toptags"]["tag"]
-            return [t["name"].lower() for t in tags[:5]]
+            counts = [int(t["count"]) for t in tags]
+            if not counts:
+                return []
+            mean_count = sum(counts) / len(counts)
+            filtered = [t["name"].lower() for t in tags if int(t["count"]) >= mean_count]
+            return filtered[:limit]
         except Exception:
             return []

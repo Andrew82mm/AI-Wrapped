@@ -14,6 +14,7 @@ from src.lastfm.parser import (
     parse_top_tracks,
     parse_top_albums,
 )
+from src.lastfm.sessions import detect_sessions, sessions_to_df, find_patterns
 
 load_dotenv()
 
@@ -98,6 +99,30 @@ print(by_day.to_string())
 
 print("\nUnique artists:", df_scrobbles["artist"].nunique())
 print("Unique tracks:", df_scrobbles["track"].nunique())
+
+# --- Sessions ---
+print("\n" + "=" * 50)
+print("SESSIONS")
+sessions = detect_sessions(df_scrobbles)
+df_sessions = sessions_to_df(sessions)
+print(f"Total sessions: {len(sessions)}")
+print(f"Avg duration:   {df_sessions['duration_min'].mean():.0f} min")
+print(f"Avg tracks:     {df_sessions['track_count'].mean():.1f}")
+print(f"\nLongest sessions:")
+print(df_sessions.nlargest(5, "duration_min")[["start", "duration_min", "track_count", "top_artists"]].to_string(index=False))
+
+print("\n" + "=" * 50)
+print("RECURRING PATTERNS")
+patterns = find_patterns(sessions)
+for p in patterns:
+    artists = ", ".join(p["top_artists"]) or "—"
+    print(
+        f"  [{p['day_type']} {p['time_slot']}]"
+        f"  ~{p['avg_hour']:.0f}:00"
+        f"  {p['avg_duration_min']} min"
+        f"  x{p['occurrences']} times"
+        f"  | {artists}"
+    )
 
 # --- Tags for top 5 artists ---
 print("\n" + "=" * 50)
