@@ -11,6 +11,7 @@ def _cache_path(name: str) -> str:
 
 
 def save(name: str, data) -> None:
+    """Serialize data to data/<name>.json with a fetched_at timestamp."""
     payload = {
         "fetched_at": datetime.now().isoformat(),
         "data": data,
@@ -20,7 +21,11 @@ def save(name: str, data) -> None:
 
 
 def load(name: str, max_age_hours: int = 6):
-    """Returns cached data if it exists and is fresh, otherwise None."""
+    """Load cached data from data/<name>.json.
+
+    Returns the data payload if the file exists and is younger than max_age_hours,
+    otherwise returns None.
+    """
     path = _cache_path(name)
     if not os.path.exists(path):
         return None
@@ -36,7 +41,11 @@ def load(name: str, max_age_hours: int = 6):
 
 
 def fetch_or_update(name: str, fetch_fn, max_age_hours: int = 6):
-    """Return cached data if fresh, otherwise call fetch_fn(), save, and return."""
+    """Return cached data if fresh, otherwise fetch, save, and return.
+
+    If cache is missing or older than max_age_hours, calls fetch_fn(),
+    saves the result to disk, and returns it.
+    """
     cached = load(name, max_age_hours)
     if cached is not None:
         print(f"[cache] {name}: using cached data")

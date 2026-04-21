@@ -3,7 +3,12 @@ import pandas as pd
 
 
 def parse_scrobbles(raw_tracks: list[dict]) -> pd.DataFrame:
-    """Convert raw Last.fm track list to a clean DataFrame."""
+    """Parse raw scrobbles from user.getRecentTracks into a DataFrame.
+
+    Columns: timestamp, track, artist, album, mbid.
+    Result is sorted by timestamp ascending.
+    Currently playing track (no date field) must be filtered out before calling.
+    """
     rows = []
     for t in raw_tracks:
         rows.append({
@@ -22,6 +27,10 @@ def parse_scrobbles(raw_tracks: list[dict]) -> pd.DataFrame:
 
 
 def parse_top_artists(raw: list[dict]) -> pd.DataFrame:
+    """Parse raw response from user.getTopArtists into a DataFrame.
+
+    Columns: rank, artist, playcount, mbid.
+    """
     rows = []
     for item in raw:
         rows.append({
@@ -34,6 +43,10 @@ def parse_top_artists(raw: list[dict]) -> pd.DataFrame:
 
 
 def parse_top_tracks(raw: list[dict]) -> pd.DataFrame:
+    """Parse raw response from user.getTopTracks into a DataFrame.
+
+    Columns: rank, track, artist, playcount, duration_sec, mbid.
+    """
     rows = []
     for item in raw:
         rows.append({
@@ -48,6 +61,10 @@ def parse_top_tracks(raw: list[dict]) -> pd.DataFrame:
 
 
 def parse_top_albums(raw: list[dict]) -> pd.DataFrame:
+    """Parse raw response from user.getTopAlbums into a DataFrame.
+
+    Columns: rank, album, artist, playcount, mbid.
+    """
     rows = []
     for item in raw:
         rows.append({

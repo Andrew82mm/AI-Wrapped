@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 
 
-GAP_MINUTES = 30  # пауза больше этого = новая сессия
+GAP_MINUTES = 30  # gap longer than this starts a new session
 
 
 @dataclass
@@ -14,14 +14,17 @@ class Session:
 
     @property
     def duration_minutes(self) -> int:
+        """Total session length from first to last track, in minutes."""
         return int((self.end - self.start).total_seconds() / 60)
 
     @property
     def track_count(self) -> int:
+        """Number of scrobbles in the session."""
         return len(self.tracks)
 
     @property
     def top_artists(self) -> list[str]:
+        """Up to 3 most-played artists in the session, sorted by play count."""
         counts = {}
         for t in self.tracks:
             counts[t["artist"]] = counts.get(t["artist"], 0) + 1
@@ -41,7 +44,11 @@ class Session:
 
 
 def detect_sessions(df: pd.DataFrame, gap_minutes: int = GAP_MINUTES) -> list[Session]:
-    """Split scrobbles into sessions by time gap."""
+    """Split a scrobble DataFrame into listening sessions.
+
+    A new session starts whenever the gap between consecutive tracks
+    exceeds gap_minutes (default 30). Input does not need to be sorted.
+    """
     if df.empty:
         return []
 
@@ -71,6 +78,11 @@ def detect_sessions(df: pd.DataFrame, gap_minutes: int = GAP_MINUTES) -> list[Se
 
 
 def sessions_to_df(sessions: list[Session]) -> pd.DataFrame:
+    """Convert a list of Session objects to a summary DataFrame.
+
+    Columns: start, end, duration_min, track_count, top_artists, hour,
+    weekday, is_weekday, date.
+    """
     rows = []
     for s in sessions:
         rows.append({
@@ -108,10 +120,14 @@ def _slot(hour: int) -> str:
 
 
 def find_patterns(sessions: list[Session], min_occurrences: int = 3) -> list[dict]:
-    """
-    Find recurring session patterns.
-    A pattern = same time slot + same weekday type (weekday/weekend),
-    repeated at least min_occurrences times.
+    """Find recurring listening patterns across sessions.
+
+    A pattern is defined by a combination of day type (weekday/weekend)
+    and time slot (night/morning/afternoon/evening/late_night).
+    Only patterns with at least min_occurrences sessions are returned.
+
+    Returns a list of dicts sorted by occurrences descending, each with:
+    key, day_type, time_slot, occurrences, avg_hour, avg_duration_min, top_artists.
     """
     from collections import defaultdict
 
