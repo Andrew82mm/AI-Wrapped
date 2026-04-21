@@ -14,6 +14,8 @@ def parse_scrobbles(raw_tracks: list[dict]) -> pd.DataFrame:
             "mbid": t.get("mbid", ""),
         })
 
+    if not rows:
+        return pd.DataFrame(columns=["timestamp", "track", "artist", "album", "mbid"])
     df = pd.DataFrame(rows)
     df = df.sort_values("timestamp").reset_index(drop=True)
     return df

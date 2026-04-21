@@ -1,145 +1,242 @@
-"""
-Synthetic data test for session detector.
-Tracks are named to make it obvious which pattern they belong to.
-"""
-from datetime import datetime, timedelta
 import random
+import pytest
 import pandas as pd
+from datetime import datetime, timedelta
 
-from src.lastfm.sessions import detect_sessions, sessions_to_df, find_patterns
-
-random.seed(42)
-
-# Each pattern has its own distinct artists and tracks
-PATTERN_TRACKS = {
-    "morning": [
-        ("Morning_Artist_1", "Morning_Track_1"),
-        ("Morning_Artist_1", "Morning_Track_2"),
-        ("Morning_Artist_2", "Morning_Track_1"),
-        ("Morning_Artist_2", "Morning_Track_2"),
-        ("Morning_Artist_3", "Morning_Track_1"),
-    ],
-    "work": [
-        ("Work_Artist_1", "Work_Track_1"),
-        ("Work_Artist_1", "Work_Track_2"),
-        ("Work_Artist_1", "Work_Track_3"),
-        ("Work_Artist_2", "Work_Track_1"),
-        ("Work_Artist_2", "Work_Track_2"),
-        ("Work_Artist_3", "Work_Track_1"),
-    ],
-    "night": [
-        ("Night_Artist_1", "Night_Track_1"),
-        ("Night_Artist_1", "Night_Track_2"),
-        ("Night_Artist_2", "Night_Track_1"),
-        ("Night_Artist_2", "Night_Track_2"),
-        ("Night_Artist_3", "Night_Track_1"),
-    ],
-}
-
-
-def make_session(start: datetime, duration_min: int, pattern: str) -> list[dict]:
-    tracks = PATTERN_TRACKS[pattern]
-    n_tracks = max(1, duration_min // 4)
-    interval = (duration_min * 60) / n_tracks
-    rows = []
-    for i in range(n_tracks):
-        artist, track = random.choice(tracks)
-        rows.append({
-            "timestamp": start + timedelta(seconds=i * interval),
-            "track": track,
-            "artist": artist,
-            "album": f"{pattern.capitalize()} Album",
-            "mbid": "",
-        })
-    return rows
+from src.lastfm.sessions import (
+    Session,
+    detect_sessions,
+    find_patterns,
+    _slot,
+    GAP_MINUTES,
+)
 
 
 # ---------------------------------------------------------------------------
-# Build synthetic scrobbles with 3 planted patterns over 12 weeks
-#
-# Pattern A — weekday morning   07:30 ±5 min  ~30 min    Mon–Fri
-# Pattern B — weekday afternoon 14:00 ±10 min ~120 min   Mon–Fri
-# Pattern C — weekend late night 23:00 ±15 min ~90 min   Fri + Sat
+# Helpers
 # ---------------------------------------------------------------------------
 
-rows = []
-base = datetime(2026, 1, 5)  # Monday
-
-for week in range(12):
-    monday = base + timedelta(weeks=week)
-
-    for day_offset in range(5):  # Mon–Fri
-        day = monday + timedelta(days=day_offset)
-
-        # Pattern A: morning commute
-        start_a = day.replace(hour=7, minute=30) + timedelta(minutes=random.randint(-5, 5))
-        rows.extend(make_session(start_a, duration_min=random.randint(25, 35), pattern="morning"))
-
-        # Pattern B: afternoon work session
-        start_b = day.replace(hour=14, minute=0) + timedelta(minutes=random.randint(-10, 10))
-        rows.extend(make_session(start_b, duration_min=random.randint(100, 140), pattern="work"))
-
-    for day_offset in [4, 5]:  # Fri + Sat night
-        day = monday + timedelta(days=day_offset)
-        start_c = day.replace(hour=23, minute=0) + timedelta(minutes=random.randint(-15, 15))
-        rows.extend(make_session(start_c, duration_min=random.randint(75, 105), pattern="night"))
+def make_df(timestamps: list[datetime], artist: str = "Artist") -> pd.DataFrame:
+    return pd.DataFrame([
+        {"timestamp": ts, "track": "Track", "artist": artist, "album": "Album", "mbid": ""}
+        for ts in timestamps
+    ])
 
 
-df = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
-print(f"Synthetic scrobbles: {len(df)}")
-print(f"Date range: {df['timestamp'].min().date()} → {df['timestamp'].max().date()}\n")
+def make_session_at(dt: datetime, duration_min: int = 30, artist: str = "Artist") -> Session:
+    s = Session(start=dt, end=dt + timedelta(minutes=duration_min))
+    s.tracks = [{"artist": artist}] * 5
+    return s
+
+
+def minutes(n: int) -> timedelta:
+    return timedelta(minutes=n)
+
+
+BASE = datetime(2026, 1, 5, 10, 0)  # Monday 10:00
+
 
 # ---------------------------------------------------------------------------
-# Run detector
+# Session dataclass
 # ---------------------------------------------------------------------------
 
-sessions = detect_sessions(df)
-df_sessions = sessions_to_df(sessions)
+class TestSession:
+    def test_duration_minutes(self):
+        s = Session(start=BASE, end=BASE + minutes(45))
+        assert s.duration_minutes == 45
 
-print(f"Sessions detected: {len(sessions)}")
-print(f"Avg duration: {df_sessions['duration_min'].mean():.0f} min\n")
+    def test_track_count(self):
+        s = Session(start=BASE, end=BASE + minutes(10))
+        s.tracks = [{"artist": "A"}, {"artist": "B"}]
+        assert s.track_count == 2
 
-patterns = find_patterns(sessions, min_occurrences=3)
+    def test_top_artists_order(self):
+        s = Session(start=BASE, end=BASE + minutes(10))
+        s.tracks = [
+            {"artist": "A"}, {"artist": "A"}, {"artist": "A"},
+            {"artist": "B"}, {"artist": "B"},
+            {"artist": "C"},
+        ]
+        assert s.top_artists[0] == "A"
+        assert s.top_artists[1] == "B"
 
-print("=" * 65)
-print(f"{'PATTERN':<30} {'TIME':>6}  {'AVG DUR':>8}  {'TIMES':>6}  TOP ARTISTS")
-print("=" * 65)
-for p in patterns:
-    artists = ", ".join(p["top_artists"])
-    print(
-        f"  {p['day_type']} {p['time_slot']:<20}"
-        f"  ~{p['avg_hour']:04.1f}"
-        f"  {p['avg_duration_min']:>5} min"
-        f"  x{p['occurrences']:>3}"
-        f"  | {artists}"
-    )
+    def test_top_artists_max_three(self):
+        s = Session(start=BASE, end=BASE + minutes(10))
+        s.tracks = [{"artist": str(i)} for i in range(10)]
+        assert len(s.top_artists) <= 3
+
+    def test_is_weekday_true(self):
+        monday = datetime(2026, 1, 5)
+        s = Session(start=monday, end=monday + minutes(10))
+        assert s.is_weekday is True
+
+    def test_is_weekday_false(self):
+        saturday = datetime(2026, 1, 10)
+        s = Session(start=saturday, end=saturday + minutes(10))
+        assert s.is_weekday is False
+
 
 # ---------------------------------------------------------------------------
-# Assertions — check planted patterns were found and mapped to correct artists
+# detect_sessions
 # ---------------------------------------------------------------------------
 
-print("\n" + "=" * 65)
-print("ASSERTIONS")
-print("=" * 65)
+class TestDetectSessions:
+    def test_empty_df_returns_empty(self):
+        assert detect_sessions(pd.DataFrame()) == []
 
-keys = {p["key"]: p for p in patterns}
+    def test_single_track_is_one_session(self):
+        sessions = detect_sessions(make_df([BASE]))
+        assert len(sessions) == 1
+        assert sessions[0].track_count == 1
 
-def assert_pattern(key: str, expected_artist_prefix: str):
-    assert key in keys, f"FAIL: '{key}' not found in patterns"
-    artists = keys[key]["top_artists"]
-    match = any(a.startswith(expected_artist_prefix) for a in artists)
-    assert match, f"FAIL: '{key}' found but top artists are {artists}, expected {expected_artist_prefix}*"
-    print(f"  OK  {key} → {artists}")
+    def test_consecutive_tracks_merge_into_one_session(self):
+        timestamps = [BASE + minutes(i * 3) for i in range(5)]
+        sessions = detect_sessions(make_df(timestamps))
+        assert len(sessions) == 1
+        assert sessions[0].track_count == 5
 
-assert_pattern("weekday_morning",   "Morning_Artist")
-assert_pattern("weekday_afternoon", "Work_Artist")
-assert any(
-    k in keys for k in ("weekend_late_night", "weekend_evening")
-), f"FAIL: no weekend night pattern found. Keys: {list(keys)}"
-night_key = "weekend_late_night" if "weekend_late_night" in keys else "weekend_evening"
-night_artists = keys[night_key]["top_artists"]
-assert any(a.startswith("Night_Artist") for a in night_artists), \
-    f"FAIL: weekend night artists are {night_artists}"
-print(f"  OK  {night_key} → {night_artists}")
+    def test_gap_splits_into_two_sessions(self):
+        sessions = detect_sessions(make_df([BASE, BASE + minutes(GAP_MINUTES + 1)]))
+        assert len(sessions) == 2
 
-print("\nAll assertions passed.")
+    def test_gap_exactly_at_boundary_does_not_split(self):
+        sessions = detect_sessions(make_df([BASE, BASE + minutes(GAP_MINUTES)]))
+        assert len(sessions) == 1
+
+    def test_custom_gap(self):
+        sessions = detect_sessions(make_df([BASE, BASE + minutes(10)]), gap_minutes=5)
+        assert len(sessions) == 2
+
+    def test_session_start_end_correct(self):
+        timestamps = [BASE + minutes(i * 3) for i in range(4)]
+        s = detect_sessions(make_df(timestamps))[0]
+        assert s.start == timestamps[0]
+        assert s.end == timestamps[-1]
+
+    def test_unsorted_input_is_handled(self):
+        timestamps = [BASE + minutes(9), BASE + minutes(3), BASE, BASE + minutes(6)]
+        sessions = detect_sessions(make_df(timestamps))
+        assert len(sessions) == 1
+        assert sessions[0].track_count == 4
+
+
+# ---------------------------------------------------------------------------
+# _slot
+# ---------------------------------------------------------------------------
+
+class TestSlot:
+    @pytest.mark.parametrize("hour,expected", [
+        (0,  "night"),
+        (3,  "night"),
+        (6,  "morning"),
+        (10, "morning"),
+        (11, "afternoon"),
+        (16, "afternoon"),
+        (17, "evening"),
+        (20, "evening"),
+        (21, "late_night"),
+        (23, "late_night"),
+    ])
+    def test_slot_mapping(self, hour, expected):
+        assert _slot(hour) == expected
+
+
+# ---------------------------------------------------------------------------
+# find_patterns
+# ---------------------------------------------------------------------------
+
+class TestFindPatterns:
+    def test_no_sessions_returns_empty(self):
+        assert find_patterns([]) == []
+
+    def test_below_min_occurrences_filtered_out(self):
+        sessions = [make_session_at(BASE + timedelta(days=i)) for i in range(2)]
+        assert find_patterns(sessions, min_occurrences=3) == []
+
+    def test_pattern_detected_above_threshold(self):
+        sessions = [make_session_at(BASE + timedelta(days=i)) for i in range(5)]
+        assert len(find_patterns(sessions, min_occurrences=3)) >= 1
+
+    def test_weekday_weekend_separated(self):
+        monday = datetime(2026, 1, 5, 10, 0)
+        saturday = datetime(2026, 1, 10, 10, 0)
+        sessions = (
+            [make_session_at(monday + timedelta(weeks=i)) for i in range(4)] +
+            [make_session_at(saturday + timedelta(weeks=i)) for i in range(4)]
+        )
+        keys = {p["key"] for p in find_patterns(sessions, min_occurrences=3)}
+        assert "weekday_morning" in keys
+        assert "weekend_morning" in keys
+
+    def test_sorted_by_occurrences_descending(self):
+        monday = datetime(2026, 1, 5, 10, 0)
+        saturday = datetime(2026, 1, 10, 10, 0)
+        sessions = (
+            [make_session_at(monday + timedelta(weeks=i)) for i in range(5)] +
+            [make_session_at(saturday + timedelta(weeks=i)) for i in range(3)]
+        )
+        counts = [p["occurrences"] for p in find_patterns(sessions, min_occurrences=3)]
+        assert counts == sorted(counts, reverse=True)
+
+    def test_top_artists_in_pattern(self):
+        sessions = [make_session_at(BASE + timedelta(days=i), artist="Radiohead") for i in range(4)]
+        patterns = find_patterns(sessions, min_occurrences=3)
+        assert "Radiohead" in patterns[0]["top_artists"]
+
+
+# ---------------------------------------------------------------------------
+# Synthetic integration test
+# ---------------------------------------------------------------------------
+
+class TestSyntheticPatterns:
+    PATTERN_TRACKS = {
+        "morning": [("Morning_Artist_1", "T1"), ("Morning_Artist_2", "T2"), ("Morning_Artist_3", "T3")],
+        "work":    [("Work_Artist_1", "T1"),    ("Work_Artist_2", "T2"),    ("Work_Artist_3", "T3")],
+        "night":   [("Night_Artist_1", "T1"),   ("Night_Artist_2", "T2"),   ("Night_Artist_3", "T3")],
+    }
+
+    @pytest.fixture
+    def synthetic_df(self):
+        random.seed(42)
+
+        def make_session(start, duration_min, pattern):
+            tracks = self.PATTERN_TRACKS[pattern]
+            n = max(1, duration_min // 4)
+            interval = (duration_min * 60) / n
+            return [
+                {
+                    "timestamp": start + timedelta(seconds=i * interval),
+                    "track": t, "artist": a, "album": "", "mbid": "",
+                }
+                for i, (a, t) in enumerate(random.choices(tracks, k=n))
+            ]
+
+        rows = []
+        base = datetime(2026, 1, 5)
+        for week in range(12):
+            monday = base + timedelta(weeks=week)
+            for day_offset in range(5):
+                day = monday + timedelta(days=day_offset)
+                rows.extend(make_session(day.replace(hour=7, minute=30), 30, "morning"))
+                rows.extend(make_session(day.replace(hour=14), 120, "work"))
+            for day_offset in [4, 5]:
+                day = monday + timedelta(days=day_offset)
+                rows.extend(make_session(day.replace(hour=23), 90, "night"))
+
+        return pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
+
+    def test_weekday_morning_found(self, synthetic_df):
+        patterns = {p["key"]: p for p in find_patterns(detect_sessions(synthetic_df), min_occurrences=3)}
+        assert "weekday_morning" in patterns
+        assert any(a.startswith("Morning_Artist") for a in patterns["weekday_morning"]["top_artists"])
+
+    def test_weekday_afternoon_found(self, synthetic_df):
+        patterns = {p["key"]: p for p in find_patterns(detect_sessions(synthetic_df), min_occurrences=3)}
+        assert "weekday_afternoon" in patterns
+        assert any(a.startswith("Work_Artist") for a in patterns["weekday_afternoon"]["top_artists"])
+
+    def test_night_pattern_found(self, synthetic_df):
+        patterns = {p["key"]: p for p in find_patterns(detect_sessions(synthetic_df), min_occurrences=3)}
+        night_key = next((k for k in patterns if "night" in k), None)
+        assert night_key is not None
+        assert any(a.startswith("Night_Artist") for a in patterns[night_key]["top_artists"])
