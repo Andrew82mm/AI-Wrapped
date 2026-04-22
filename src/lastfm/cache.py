@@ -1,9 +1,13 @@
 import json
+import logging
 import os
+import tempfile
 from datetime import datetime, timedelta
 
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "../../data")
+
+_log = logging.getLogger(__name__)
 
 
 def _cache_path(name: str) -> str:
@@ -11,20 +15,36 @@ def _cache_path(name: str) -> str:
 
 
 def save(name: str, data) -> None:
-    """Serialize data to data/<name>.json with a fetched_at timestamp."""
+    """Serialize data to data/<name>.json with a fetched_at timestamp.
+
+    Write is atomic: each call creates its own unique temp file via
+    tempfile.mkstemp, then os.replace renames it into place.  Concurrent
+    writers are safe — last writer wins, and readers always see a complete
+    file (os.replace is atomic at the POSIX filesystem level).
+    """
     payload = {
         "fetched_at": datetime.now().isoformat(),
         "data": data,
     }
-    with open(_cache_path(name), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    path = _cache_path(name)
+    dir_path = os.path.dirname(path)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+    os.replace(tmp_path, path)
 
 
 def load(name: str, max_age_hours: int = 6):
     """Load cached data from data/<name>.json.
 
-    Returns the data payload if the file exists and is younger than max_age_hours,
-    otherwise returns None.
+    Returns the data payload if the file exists and is younger than
+    max_age_hours, otherwise returns None.
     """
     path = _cache_path(name)
     if not os.path.exists(path):
@@ -48,10 +68,10 @@ def fetch_or_update(name: str, fetch_fn, max_age_hours: int = 6):
     """
     cached = load(name, max_age_hours)
     if cached is not None:
-        print(f"[cache] {name}: using cached data")
+        _log.debug("%s: using cached data", name)
         return cached
 
-    print(f"[cache] {name}: fetching from API...")
+    _log.debug("%s: fetching from API...", name)
     data = fetch_fn()
     save(name, data)
     return data

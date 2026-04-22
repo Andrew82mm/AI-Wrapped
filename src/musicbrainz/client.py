@@ -1,3 +1,4 @@
+import threading
 import time
 import requests
 
@@ -5,12 +6,18 @@ import requests
 BASE_URL = "https://musicbrainz.org/ws/2"
 MIN_INTERVAL = 1.0  # MusicBrainz policy: <= 1 request per second
 
+# Module-level rate-limit state shared across all MusicBrainzClient instances
+# and threads so that two clients in different threads cannot both fire at once.
+_mb_lock = threading.Lock()
+_mb_last_request_at: float = 0.0
+
 
 class MusicBrainzClient:
     """Thin client over the MusicBrainz web service.
 
     A descriptive User-Agent with a contact is required by MB policy.
-    The client enforces a 1 req/sec global rate limit across all calls.
+    The client enforces a 1 req/sec global rate limit across all calls
+    and all instances (module-level lock + timestamp).
     """
 
     def __init__(self, contact: str, app_name: str = "AI-Wrapped", app_version: str = "0.1"):
@@ -24,14 +31,19 @@ class MusicBrainzClient:
             "User-Agent": f"{app_name}/{app_version} ( {contact} )",
             "Accept": "application/json",
         })
-        self._last_request_at: float = 0.0
 
     def _throttle(self) -> None:
-        """Sleep if needed to enforce the 1 req/sec MusicBrainz rate limit."""
-        elapsed = time.time() - self._last_request_at
-        if elapsed < MIN_INTERVAL:
-            time.sleep(MIN_INTERVAL - elapsed)
-        self._last_request_at = time.time()
+        """Sleep if needed to enforce the 1 req/sec MusicBrainz rate limit.
+
+        Uses a module-level lock so multiple MusicBrainzClient instances
+        in different threads share the same rate window.
+        """
+        global _mb_last_request_at
+        with _mb_lock:
+            elapsed = time.time() - _mb_last_request_at
+            if elapsed < MIN_INTERVAL:
+                time.sleep(MIN_INTERVAL - elapsed)
+            _mb_last_request_at = time.time()
 
     def _get(self, path: str, **params) -> dict:
         """Throttle, then GET a MusicBrainz endpoint, returning parsed JSON."""
@@ -48,12 +60,7 @@ class MusicBrainzClient:
         `first-release-date` set; falls back to the first result.
         Returns None if nothing matched.
         """
-        query = f'recording:"{_escape(track)}" AND artist:"{_escape(artist)}"'
-        try:
-            data = self._get("recording", query=query, limit=5, inc="releases+tags")
-        except requests.HTTPError:
-            return None
-        recordings = data.get("recordings") or []
+        recordings = self.search_recording_candidates(artist, track)
         if not recordings:
             return None
         with_date = [r for r in recordings if r.get("first-release-date")]

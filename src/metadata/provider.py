@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict, field
+import logging
 
 from src.lastfm.cache import fetch_or_update
 from src.musicbrainz.client import MusicBrainzClient, extract_release_year, extract_tags
@@ -10,6 +11,12 @@ from src.acousticbrainz.client import (
     extract_bpm,
 )
 from src.genius.client import extract_release_year as genius_extract_year
+
+_log = logging.getLogger(__name__)
+
+# Bump when TrackMetadata fields are added/removed/renamed so stale cache
+# entries are silently dropped rather than crashing with TypeError.
+_CACHE_SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -30,7 +37,7 @@ class TrackMetadata:
 
     def to_dict(self) -> dict:
         """Serialise the dataclass to a plain dict for JSON caching."""
-        return asdict(self)
+        return {"schema_version": _CACHE_SCHEMA_VERSION, **asdict(self)}
 
 
 def resolve_track_metadata(
@@ -90,9 +97,9 @@ def resolve_track_metadata(
     # If AB returned nothing for our MBID, try other MB candidates —
     # Last.fm MBIDs often point to a different recording than AB indexed.
     if mbid and not results.get("ab_high"):
-        ab_mbid = _find_ab_mbid(artist, track, mbid, mb, ab)
+        ab_mbid, ab_high_cached = _find_ab_mbid(artist, track, mbid, mb, ab)
         if ab_mbid and ab_mbid != mbid:
-            results["ab_high"] = ab.get_high_level(ab_mbid)
+            results["ab_high"] = ab_high_cached
             results["ab_low"] = ab.get_low_level(ab_mbid)
 
     high = results.get("ab_high")
@@ -137,13 +144,21 @@ def resolve_track_metadata_cached(
     static — release year and MBID do not change.
     """
     key = f"meta_{_safe(artist)}___{_safe(track)}"
-    payload = fetch_or_update(
-        key,
-        lambda: resolve_track_metadata(
+
+    def _fetch() -> dict:
+        return resolve_track_metadata(
             artist, track, mb, ab, lastfm_tags_fn, known_mbid, genius_search_fn
-        ).to_dict(),
-        max_age_hours=max_age_hours,
-    )
+        ).to_dict()
+
+    payload = fetch_or_update(key, _fetch, max_age_hours=max_age_hours)
+
+    if payload.get("schema_version") != _CACHE_SCHEMA_VERSION:
+        _log.debug("%s: cache schema mismatch — refetching", key)
+        payload = _fetch()
+        from src.lastfm.cache import save as cache_save
+        cache_save(key, payload)
+
+    payload = {k: v for k, v in payload.items() if k != "schema_version"}
     return TrackMetadata(**payload)
 
 
@@ -153,9 +168,10 @@ def _find_ab_mbid(
     skip_mbid: str,
     mb: MusicBrainzClient,
     ab: AcousticBrainzClient,
-) -> str | None:
+) -> tuple[str | None, dict | None]:
     """Search MB for up to 5 recording candidates and return the first
-    MBID that AcousticBrainz actually has data for.
+    MBID that AcousticBrainz actually has data for, together with the
+    already-fetched high-level payload (avoids a duplicate AB request).
 
     Skips `skip_mbid` since the caller already knows it returns 404.
     AB probes run in parallel — no rate limit on AB side.
@@ -163,14 +179,15 @@ def _find_ab_mbid(
     candidates = mb.search_recording_candidates(artist, track)
     mbids = [r["id"] for r in candidates if r.get("id") and r["id"] != skip_mbid]
     if not mbids:
-        return None
+        return None, None
 
     with ThreadPoolExecutor(max_workers=len(mbids)) as pool:
         probe = {pool.submit(ab.get_high_level, m): m for m in mbids}
         for future in as_completed(probe):
-            if future.result() is not None:
-                return probe[future]
-    return None
+            data = future.result()
+            if data is not None:
+                return probe[future], data
+    return None, None
 
 
 def _safe(s: str) -> str:

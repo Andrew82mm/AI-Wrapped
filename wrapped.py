@@ -48,12 +48,15 @@ from src.features.listening_style import listening_style
 from src.features.artifacts import year_artifacts
 from src.features.period import Period, filter_df, year_period, last_n_days
 
+from src.narrative.generate import generate_narrative, NarrativeError
+
 
 STAGE_ALIASES = {
-    "all":      ("profile", "metadata", "features"),
-    "profile":  ("profile",),
-    "metadata": ("metadata",),
-    "features": ("profile", "metadata", "features"),  # features depend on both
+    "all":       ("profile", "metadata", "features", "narrative"),
+    "profile":   ("profile",),
+    "metadata":  ("metadata",),
+    "features":  ("profile", "metadata", "features"),
+    "narrative": ("profile", "metadata", "features", "narrative"),
 }
 
 
@@ -244,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--stages", default="all",
-        help="comma-separated: all | profile | metadata | features (default: all)",
+        help="comma-separated: all | profile | metadata | features | narrative (default: all)",
     )
     parser.add_argument(
         "--period", default=None,
@@ -261,6 +264,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--quiet", action="store_true",
         help="suppress per-stage stdout (still writes --json)",
+    )
+    parser.add_argument(
+        "--voice", default="a", choices=("a", "b"),
+        help="narrative voice: a=observational friend (default), b=music critic",
+    )
+    parser.add_argument(
+        "--lang", default="ru", choices=("ru", "en"),
+        help="narrative language (default: ru)",
+    )
+    parser.add_argument(
+        "--narrative-out", default=None,
+        help="write generated narrative (markdown) to this path",
     )
     args = parser.parse_args(argv)
 
@@ -318,6 +333,32 @@ def main(argv: list[str] | None = None) -> int:
             df_all, sessions, track_metas, ctx["df_top_artists"], lastfm,
             verbose=verbose,
         )
+
+    # --- narrative ---
+    if "narrative" in stages and features:
+        if verbose:
+            _header("NARRATIVE")
+        payload = {
+            "user": username,
+            "period": period.name if period else "lifetime",
+            "features": features,
+        }
+        try:
+            narr = generate_narrative(payload, voice=args.voice, lang=args.lang)
+        except NarrativeError as e:
+            print(f"[narrative] failed: {e}", file=sys.stderr)
+            return 1
+        text = narr.as_text()
+        if verbose:
+            print(text)
+            if not narr.verify.ok:
+                print(f"[narrative] WARNING: unverified names: "
+                      f"{narr.verify.offenders}", file=sys.stderr)
+        if args.narrative_out:
+            with open(args.narrative_out, "w", encoding="utf-8") as f:
+                f.write(text)
+            if verbose:
+                print(f"[narrative] wrote {args.narrative_out}")
 
     # --- JSON dump ---
     if args.json and features:
