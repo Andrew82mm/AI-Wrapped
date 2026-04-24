@@ -179,7 +179,7 @@ def _pipeline(job_id: str, username: str, period_str: str, backend: str):
     }
 
     # ── 4: narrative ──────────────────────────────────────────────────────────
-    _step(job_id, 4, "Writing your story…")
+    _step(job_id, 4, "Writing your story… (up to 5 min)")
 
     payload = {
         "user":            username,

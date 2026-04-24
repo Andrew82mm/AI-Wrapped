@@ -141,7 +141,7 @@ def generate_narrative(
     model: str | None = None,
     api_key: str | None = None,
     temperature: float = 0.8,
-    timeout: int = 90,
+    timeout: int = 300,
     max_retries: int = 1,
     backend: str = "openrouter",
 ) -> Narrative:
