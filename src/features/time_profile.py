@@ -46,9 +46,12 @@ def time_signature(df: pd.DataFrame) -> dict:
         "late_night": "night owl",
     }
 
+    hour_distribution = [hour_counts.get(h, 0) for h in range(24)]
+
     return {
         "peak_hour": peak_hour,
         "dominant_slot": dominant_slot,
         "label": label_map.get(dominant_slot, dominant_slot),
         "slot_distribution": slot_dist,
+        "hour_distribution": hour_distribution,
     }

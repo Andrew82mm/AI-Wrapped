@@ -7,7 +7,7 @@ _LATE_HOURS = set(range(22, 24)) | set(range(0, 5))
 def guilty_pleasures(
     df: pd.DataFrame,
     min_plays: int = 5,
-    late_fraction_threshold: float = 0.8,
+    late_fraction_threshold: float = 0.5,
     top_n: int = 5,
 ) -> dict:
     """Surface artists listened to almost exclusively late at night.

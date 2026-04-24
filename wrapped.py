@@ -294,6 +294,10 @@ def main(argv: list[str] | None = None) -> int:
         "--user", default=None,
         help="Last.fm username (overrides LASTFM_USERNAME from .env; prompts if neither is set)",
     )
+    parser.add_argument(
+        "--html", default=None,
+        help="render HTML report to this path (requires --json or features stage)",
+    )
     args = parser.parse_args(argv)
 
     stages = _parse_stages(args.stages)
@@ -389,20 +393,32 @@ def main(argv: list[str] | None = None) -> int:
             if verbose:
                 print(f"[narrative] wrote {args.narrative_out}")
 
-    # --- JSON dump ---
-    if args.json and features:
+    # --- build shared payload (JSON + HTML both need it) ---
+    payload = None
+    if features:
         payload = {
             "user": username,
             "period": period.name if period else "lifetime",
+            "scrobbles_total": len(df_all),
             "generated_at": datetime.now().isoformat(),
             "features": features,
         }
+
+    # --- JSON dump ---
+    if args.json and payload:
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
         if verbose:
             size = os.path.getsize(args.json)
-            print(f"\n[json] wrote {args.json} ({size} bytes, "
-                  f"{size // 1024} KB)")
+            print(f"\n[json] wrote {args.json} ({size} bytes, {size // 1024} KB)")
+
+    # --- HTML report ---
+    if args.html and payload:
+        from frontend.render import render as render_html, _parse_narrative_md
+        narrative_sections = None
+        if args.narrative_out and os.path.exists(args.narrative_out):
+            narrative_sections = _parse_narrative_md(args.narrative_out)
+        render_html(payload, narrative_sections, args.html)
 
     return 0
 

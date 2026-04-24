@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Wrapped — Your Music Report</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Pinterest palette */
+    --red:       #e60023;
+    --red-hover: #c0001d;
+    --red-dim:   rgba(230,0,35,0.08);
+    --red-mid:   rgba(230,0,35,0.18);
+    --purple:    #6845ab;
+    --purple-dim:rgba(104,69,171,0.1);
+    --green:     #103c25;
+
+    /* Surfaces */
+    --bg:        #ffffff;
+    --bg-fog:    #f6f6f3;
+    --bg-sand:   #e5e5e0;
+    --bg-warm:   #e0e0d9;
+    --bg-dark:   #33332e;
+
+    /* Text */
+    --text:      #211922;
+    --text-mid:  #62625b;
+    --text-dim:  #91918c;
+
+    /* Borders */
+    --border:    #e5e5e0;
+    --border-mid:#c8c8c1;
+
+    /* Typography */
+    --sans: -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root { width: 100%; }
+
+  .page-wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ── SECTIONS ── */
+  .section {
+    padding: 72px 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1.5px;
+    background: var(--red-mid);
+  }
+
+  .section-title {
+    font-size: clamp(26px, 4.5vw, 44px);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -1.2px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .section-subtitle {
+    font-size: 14px;
+    color: var(--text-mid);
+    margin-bottom: 36px;
+    font-weight: 400;
+  }
+
+  .section-num {
+    font-size: 110px;
+    font-weight: 700;
+    color: rgba(33,25,34,0.04);
+    line-height: 1;
+    position: absolute;
+    right: 28px;
+    top: 60px;
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: -4px;
+  }
+
+  /* ── PILLS ── */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--bg-sand);
+    color: var(--text-mid);
+    white-space: nowrap;
+  }
+  .pill.red   { background: var(--red-dim); color: var(--red); }
+  .pill.plum  { background: var(--purple-dim); color: var(--purple); }
+
+  /* ── WELCOME SCREEN ── */
+  .welcome-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-fog);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: opacity 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.7s cubic-bezier(0.16,1,0.3,1);
+  }
+
+  .welcome-screen.exiting { opacity: 0; transform: scale(1.03); pointer-events: none; }
+
+  .welcome-bg-rings {
+    position: absolute;
+    left: 50%;
+    top: 57%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.6;
+  }
+
+  .welcome-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    animation: pulseRing 5s ease-in-out infinite;
+  }
+  @keyframes pulseRing {
+    0%,100% { opacity: 0.5; transform: scale(1); }
+    50%      { opacity: 1; transform: scale(1.012); }
+  }
+
+  .welcome-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 24px;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .welcome-logo {
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--red);
+    font-weight: 700;
+    margin-bottom: 48px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .welcome-logo::before, .welcome-logo::after {
+    content: '';
+    width: 32px;
+    height: 1.5px;
+    background: var(--red);
+    opacity: 0.4;
+  }
+
+  .welcome-title {
+    font-size: clamp(40px, 9vw, 72px);
+    font-weight: 700;
+    line-height: 1.0;
+    letter-spacing: -2px;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+  .welcome-title span { color: var(--red); }
+
+  .welcome-desc {
+    font-size: 15px;
+    color: var(--text-mid);
+    line-height: 1.65;
+    margin-bottom: 44px;
+    max-width: 360px;
+  }
+
+  .welcome-input-row {
+    display: flex;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .welcome-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--text-dim);
+    border-right: none;
+    border-radius: 16px 0 0 16px;
+    padding: 12px 18px;
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .welcome-input::placeholder { color: var(--text-dim); }
+  .welcome-input:focus {
+    border-color: var(--red);
+    box-shadow: 0 0 0 3px rgba(230,0,35,0.1);
+  }
+
+  .welcome-btn {
+    background: var(--red);
+    border: 1px solid var(--red);
+    border-radius: 0 16px 16px 0;
+    padding: 12px 22px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .welcome-btn:hover  { background: var(--red-hover); }
+  .welcome-btn:active { transform: scale(0.97); }
+  .welcome-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .welcome-hint { margin-top: 12px; font-size: 12px; color: var(--text-dim); }
+
+  /* ── PERIOD SELECTOR ── */
+  .period-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    align-self: flex-start;
+    width: 100%;
+    max-width: 400px;
+    text-align: left;
+  }
+
+  .period-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 20px;
+  }
+
+  .period-btn {
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 10px 8px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  .period-btn:hover {
+    border-color: var(--red);
+    color: var(--text);
+  }
+
+  .period-btn.selected {
+    background: var(--red-dim);
+    border-color: var(--red);
+    color: var(--red);
+    font-weight: 700;
+  }
+
+  .period-btn small {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.7;
+    margin-top: 2px;
+  }
+
+  /* ── LOADING ── */
+  .loading-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-fog);
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    transition: opacity 0.5s ease;
+  }
+  .loading-screen.hidden { opacity: 0; pointer-events: none; }
+
+  .loading-username {
+    font-size: clamp(26px, 6vw, 52px);
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    color: var(--text);
+  }
+  .loading-username span { color: var(--red); }
+
+  .loading-steps { display: flex; flex-direction: column; gap: 10px; min-width: 280px; }
+
+  .loading-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    transition: color 0.3s;
+  }
+  .loading-step.active { color: var(--text); font-weight: 500; }
+  .loading-step.done   { color: var(--purple); }
+
+  .loading-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--bg-sand);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .loading-step.active .loading-dot {
+    background: var(--red);
+    box-shadow: 0 0 8px rgba(230,0,35,0.5);
+    animation: pulseDot 0.8s ease-in-out infinite;
+  }
+  .loading-step.done .loading-dot { background: var(--purple); }
+  @keyframes pulseDot {
+    0%,100% { transform: scale(1); }
+    50%      { transform: scale(1.5); }
+  }
+
+  .loading-bar-track {
+    width: 280px; height: 3px;
+    background: var(--bg-sand);
+    border-radius: 100px; overflow: hidden;
+  }
+  .loading-bar-fill {
+    height: 100%;
+    border-radius: 100px;
+    background: linear-gradient(90deg, var(--red), var(--purple));
+    transition: width 0.4s cubic-bezier(0.16,1,0.3,1);
+  }
+
+  /* ── REPORT PAGE ── */
+  .report-page { transition: opacity 0.5s ease; }
+  .report-page.hidden  { opacity: 0; }
+  .report-page.visible { opacity: 1; }
+
+  /* ── HERO ── */
+  .hero {
+    background: var(--text);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-bottom: 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-rings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .hero-vinyl-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.06);
+    animation: spinSlow linear infinite;
+  }
+  @keyframes spinSlow { to { transform: rotate(360deg); } }
+
+  .hero-waveform {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%;
+    opacity: 0.12;
+  }
+  @keyframes waveAnim {
+    0%,100% { transform: scaleY(1); }
+    50%      { transform: scaleY(0.5); }
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 28px;
+    animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(28px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--red);
+    font-weight: 700;
+    margin-bottom: 24px;
+  }
+
+  .hero-title {
+    font-size: clamp(44px, 9vw, 96px);
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -3px;
+    margin-bottom: 36px;
+    color: #fff;
+  }
+  .hero-title em { font-style: italic; color: var(--red); }
+
+  .hero-stat-big {
+    font-size: clamp(72px, 14vw, 140px);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -4px;
+    color: #fff;
+  }
+  .hero-stat-label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .hero-user { font-size: 14px; color: rgba(255,255,255,0.55); margin-top: 4px; }
+  .hero-user span { color: #fff; font-weight: 600; }
+
+  .hero-pills { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  .hero-pill {
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .hero-pill.hot { background: var(--red); color: #fff; border-color: transparent; }
+
+  /* ── CLOCK ── */
+  .clock-wrap { display: flex; align-items: center; gap: 44px; flex-wrap: wrap; }
+  .clock-peak { font-size: 36px; font-weight: 700; letter-spacing: -1px; color: var(--red); margin-bottom: 4px; }
+  .clock-peak-label { font-size: 13px; color: var(--text-mid); margin-bottom: 20px; }
+
+  /* ── DECADE BARS ── */
+  .decade-bars { display: flex; flex-direction: column; gap: 16px; }
+  .decade-row  { display: grid; grid-template-columns: 60px 1fr 52px; align-items: center; gap: 16px; }
+  .decade-label { font-size: 13px; font-weight: 600; color: var(--text-mid); text-align: right; }
+  .decade-bar-track {
+    height: 28px;
+    background: var(--bg-fog);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .decade-bar-fill {
+    height: 100%;
+    border-radius: 8px;
+    transition: width 1.2s cubic-bezier(0.16,1,0.3,1);
+  }
+  .decade-pct { font-size: 20px; font-weight: 700; color: var(--text-mid); font-variant-numeric: tabular-nums; }
+  .decade-meta { display: flex; gap: 10px; margin-top: 24px; flex-wrap: wrap; }
+
+  /* ── BINGE WEEKS ── */
+  .binge-axes { display: flex; gap: 4px; align-items: flex-end; height: 160px; margin-bottom: 8px; padding: 0 4px; }
+  .binge-bar-wrap {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-end;
+    height: 100%; cursor: pointer; position: relative;
+  }
+  .binge-bar {
+    width: 100%;
+    border-radius: 6px 6px 0 0;
+    transition: filter 0.15s, transform 0.15s;
+  }
+  .binge-bar-wrap:hover .binge-bar { filter: brightness(1.15); transform: scaleY(1.04); transform-origin: bottom; }
+
+  .binge-annotation {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 11px;
+    white-space: nowrap;
+    color: #fff;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 10;
+  }
+  .binge-annotation strong { display: block; color: var(--red); font-size: 12px; font-weight: 700; }
+  .binge-bar-wrap:hover .binge-annotation,
+  .binge-bar-wrap.spike .binge-annotation { opacity: 1; }
+
+  .binge-week-lbl { flex: 1; text-align: center; font-size: 10px; color: var(--text-dim); }
+  .binge-weeks-labels { display: flex; gap: 4px; }
+
+  /* ── LOYALTY ── */
+  .loyalty-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .loyalty-col {
+    background: var(--bg-fog);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+  }
+  .loyalty-col-title {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 20px;
+  }
+  .loyalty-artist {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: default;
+  }
+  .loyalty-artist:last-child { border-bottom: none; }
+  .loyalty-name { font-weight: 500; font-size: 14px; color: var(--text); transition: color 0.15s; }
+  .loyalty-artist:hover .loyalty-name { color: var(--red); }
+  .loyalty-badge {
+    font-size: 11px; color: var(--text-dim);
+    background: var(--bg-sand); padding: 3px 10px;
+    border-radius: 16px; white-space: nowrap;
+    border: 1px solid var(--border-mid);
+  }
+
+  /* ── GUILTY PLEASURES ── */
+  .guilty-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+  .guilty-card {
+    aspect-ratio: 1;
+    border-radius: 20px;
+    background: var(--bg-fog);
+    border: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer; position: relative; overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .guilty-card:hover { border-color: var(--red); box-shadow: 0 4px 24px rgba(230,0,35,0.08); }
+  .guilty-blur-overlay {
+    position: absolute; inset: 0;
+    backdrop-filter: blur(10px);
+    background: rgba(246,246,243,0.7);
+    transition: opacity 0.35s ease;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; border-radius: 20px;
+  }
+  .guilty-card:hover .guilty-blur-overlay { opacity: 0; pointer-events: none; }
+  .guilty-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px; text-align: center; }
+  .guilty-art {
+    width: 68px; height: 68px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 700;
+  }
+  .guilty-artist-name { font-weight: 700; font-size: 14px; color: var(--text); }
+  .guilty-tag { font-size: 11px; color: var(--text-dim); }
+
+  /* ── RECOMMENDATIONS ── */
+  .rec-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+  .rec-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 22px;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    position: relative; overflow: hidden;
+  }
+  .rec-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--red), var(--purple));
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .rec-card:hover { border-color: var(--red-mid); box-shadow: 0 6px 28px rgba(230,0,35,0.07); transform: translateY(-3px); }
+  .rec-card:hover::before { opacity: 1; }
+  .rec-new-badge { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--red); font-weight: 700; margin-bottom: 10px; }
+  .rec-name { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 14px; color: var(--text); }
+  .rec-via { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .rec-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rec-tag {
+    font-size: 11px; padding: 3px 10px;
+    border-radius: 16px;
+    background: var(--purple-dim);
+    color: var(--purple);
+    font-weight: 500;
+  }
+  .rec-desc { margin-top: 12px; font-size: 12px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
+
+  /* ── ARTIFACTS ── */
+  .artifact-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }
+  .artifact-card {
+    background: var(--bg-fog);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+    transition: border-color 0.2s;
+    cursor: default;
+  }
+  .artifact-card:hover { border-color: var(--red); }
+  .artifact-icon { font-size: 22px; margin-bottom: 12px; color: var(--red); }
+  .artifact-value { font-size: 30px; font-weight: 700; letter-spacing: -1px; color: var(--text); line-height: 1.1; margin-bottom: 6px; }
+  .artifact-label { font-size: 12px; color: var(--text-mid); line-height: 1.6; white-space: pre-line; }
+
+  /* ── NARRATIVE ── */
+  .narrative-card {
+    background: var(--bg-fog);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--red);
+    border-radius: 0 20px 20px 0;
+    padding: 40px 40px 40px 44px;
+  }
+  .narrative-card p {
+    font-size: 17px;
+    font-style: italic;
+    line-height: 1.85;
+    color: var(--text-mid);
+    margin-bottom: 20px;
+    text-wrap: pretty;
+  }
+  .narrative-card p:last-child { margin-bottom: 0; }
+  .narrative-card p strong { font-style: normal; color: var(--text); font-weight: 700; }
+
+  /* ── FOOTER ── */
+  .footer {
+    background: var(--bg-dark);
+    padding: 60px 28px;
+    text-align: center;
+  }
+  .footer-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.5); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+  .footer-sub   { font-size: 12px; color: rgba(255,255,255,0.25); }
+  .footer-back  {
+    margin-top: 24px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.45);
+    border-radius: 16px; padding: 8px 18px;
+    font-family: var(--sans); font-size: 12px; cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .footer-back:hover { border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.8); }
+
+  @media (max-width: 600px) {
+    .loyalty-cols, .guilty-grid, .rec-grid, .artifact-grid { grid-template-columns: 1fr; }
+    .clock-wrap { flex-direction: column; }
+    .section-num { font-size: 72px; }
+    .narrative-card { padding: 28px 24px 28px 28px; border-left-width: 3px; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>window.WRAPPED_DATA = __WRAPPED_DATA_JSON__;</script>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ─── DATA ─── */
+const D = window.WRAPPED_DATA || {};
+const IS_STATIC = D && D.user;   // true when rendered by render.py
+
+/* ─── MOCK FALLBACKS (used when opening template.html directly) ─── */
+const MOCK = {
+  user: 'Adrew_1024',
+  scrobbles: 4200,
+  per_day: 47,
+  period: { label: '90 days', days: 90 },
+  time_signature: {
+    hour_distribution: [8,12,18,24,16,8,4,3,5,9,14,20,25,30,28,22,18,24,32,38,44,52,60,72],
+    peak_hour: 23, peak_label: '11:00 PM', label: 'Night Owl',
+    pill: '🌙 Mostly after midnight',
+  },
+  decade_fingerprint: {
+    decades: [
+      {label:'2010s',pct:48,color:'#e60023'},
+      {label:'2000s',pct:31,color:'#c0001d'},
+      {label:'1990s',pct:14,color:'#6845ab'},
+      {label:'1980s',pct:7, color:'#4a2d8a'},
+    ],
+    dominant:'2010s', earliest:1983, latest:2025,
+  },
+  binge_weeks: {
+    weeks: [
+      {label:'Jan 27',val:98, spike:false,artist:null,sc:null},
+      {label:'Feb 3', val:312,spike:true, artist:'Radiohead week',  sc:312},
+      {label:'Feb 10',val:120,spike:false,artist:null,sc:null},
+      {label:'Feb 17',val:88, spike:false,artist:null,sc:null},
+      {label:'Feb 24',val:105,spike:false,artist:null,sc:null},
+      {label:'Mar 3', val:145,spike:false,artist:null,sc:null},
+      {label:'Mar 10',val:110,spike:false,artist:null,sc:null},
+      {label:'Mar 17',val:287,spike:true, artist:'Mac DeMarco week',sc:287},
+      {label:'Mar 24',val:165,spike:true, artist:'bôa discovery',   sc:165},
+      {label:'Mar 31',val:130,spike:false,artist:null,sc:null},
+      {label:'Apr 7', val:95, spike:false,artist:null,sc:null},
+      {label:'Apr 14',val:245,spike:true, artist:'Slowdive week',   sc:245},
+    ],
+    median:107, binge_count:4,
+  },
+  artist_loyalty: {
+    veterans: [{name:'Radiohead',badge:'14 weeks active'},{name:'Alex G',badge:'11 weeks active'},{name:'Aphex Twin',badge:'9 weeks active'}],
+    newcomers:[{name:'Wisp',badge:'first heard Mar 2'},{name:'bôa',badge:'first heard Mar 28'},{name:'Grouper',badge:'first heard Apr 9'}],
+  },
+  guilty_pleasures: [
+    {name:'Calvin Harris',tag:'EDM banger',  letter:'C',bg:'#fff0f2',color:'#e60023'},
+    {name:'TV Girl',      tag:'indie pop',   letter:'T',bg:'#fdf6ec',color:'#c46b00'},
+    {name:'Queen',        tag:'classic rock',letter:'Q',bg:'#f3f0ff',color:'#6845ab'},
+  ],
+  recommendations: [
+    {name:'Grouper',   via:['Slowdive','Alex G'],              desc:'Hazy, reverb-drenched dream folk'},
+    {name:'Broadcast', via:['Aphex Twin','Radiohead'],         desc:'Kosmische electronics meets art pop'},
+    {name:'Mazzy Star',via:['Cigarettes After Sex','Men I Trust'],desc:'Slow-burn neo-psych romance'},
+  ],
+  artifacts: [
+    {icon:'⟳',value:'4h 12m', label:'Longest session\nFeb 14 — alone with Radiohead'},
+    {icon:'◈',value:'18 days',label:'Longest listening streak\nFeb 3 – Feb 20'},
+    {icon:'▲',value:'94',     label:'Most scrobbles in a day\nMar 3'},
+    {icon:'◷',value:'11d silence',label:'Longest break\nJan 5 – Jan 16'},
+  ],
+  narrative: { sections: [] },
+};
+
+const d = IS_STATIC ? D : MOCK;
+
+/* ─── WAVEFORM ─── */
+function HeroWave() {
+  const bars = 80;
+  const hs = Array.from({length: bars}, (_, i) =>
+    Math.max(0.07, Math.min(1, Math.sin(i*0.18)*0.4+0.6 + Math.sin(i*0.67)*0.2))
+  );
+  return (
+    <svg className="hero-waveform" viewBox={`0 0 ${bars*14} 120`} preserveAspectRatio="none" height="120">
+      {hs.map((h,i) => (
+        <rect key={i} x={i*14+2} y={60-h*50} width={10} height={h*100} rx="3" fill="#e60023"
+          style={{animation:`waveAnim ${1.4+(i%5)*0.3}s ease-in-out infinite`, animationDelay:`${(i%7)*0.15}s`}}/>
+      ))}
+    </svg>
+  );
+}
+
+/* ─── VINYL RINGS ─── */
+function VinylRings({light}) {
+  const rings = [380,310,240,180,120,70,40];
+  const col = light ? 'rgba(33,25,34,' : 'rgba(255,255,255,';
+  return (
+    <div style={{position:'relative',width:420,height:420}}>
+      {rings.map((r,i)=>(
+        <div key={i} className={light ? 'welcome-ring' : 'hero-vinyl-ring'} style={{
+          width:r, height:r,
+          top:'50%', left:'50%',
+          marginTop:-r/2, marginLeft:-r/2,
+          borderColor:`${col}${0.06+i*0.01})`,
+          animationDuration:`${38+i*14}s`,
+          animationDirection: i%2===0?'normal':'reverse'
+        }}/>
+      ))}
+      <div style={{
+        position:'absolute', top:'50%', left:'50%',
+        transform:'translate(-50%,-50%)',
+        width:22, height:22, borderRadius:'50%',
+        background:'#e60023', boxShadow:'0 0 28px rgba(230,0,35,0.7)'
+      }}/>
+    </div>
+  );
+}
+
+/* ─── HERO ─── */
+function Hero() {
+  const period = d.period;
+  const now = new Date();
+  let rangeLabel;
+  if (!period.days) {
+    rangeLabel = 'All time report';
+  } else {
+    const from = new Date(now);
+    from.setDate(from.getDate() - period.days);
+    const fmt = dt => dt.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    rangeLabel = `${fmt(from)} – ${fmt(now)}`;
+  }
+  const scrobbles = d.scrobbles ? d.scrobbles.toLocaleString() : '—';
+  return (
+    <div className="hero">
+      <div className="hero-rings"><div style={{opacity:0.6}}><VinylRings /></div></div>
+      <HeroWave />
+      <div className="hero-content">
+        <div className="hero-eyebrow">◆ {period.label} report · {rangeLabel}</div>
+        <h1 className="hero-title">Your {period.label}<br/><em>in music</em></h1>
+        <div style={{display:'flex', alignItems:'flex-end', gap:36, flexWrap:'wrap'}}>
+          <div>
+            <div className="hero-stat-big">{scrobbles}</div>
+            <div className="hero-stat-label" style={{marginTop:4}}>scrobbles</div>
+            <div className="hero-user">Report for <span>{d.user}</span></div>
+          </div>
+          {d.per_day > 0 && (
+            <div style={{display:'flex',flexDirection:'column',gap:8,justifyContent:'flex-end',paddingBottom:10}}>
+              <div className="hero-pills">
+                <span className="hero-pill">≈ {d.per_day} / day</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── RADIAL CLOCK ─── */
+function RadialClock() {
+  const hourData = d.time_signature.hour_distribution;
+  const max = Math.max(...hourData) || 1;
+  const size=240, cx=120, cy=120, innerR=50, outerMax=100;
+
+  const segs = hourData.map((val,i) => {
+    const a  = (i/24)*Math.PI*2-Math.PI/2;
+    const a2 = ((i+1)/24)*Math.PI*2-Math.PI/2;
+    const r  = innerR + (val/max)*(outerMax-innerR);
+    const g  = 0.045;
+    const pts = [
+      [cx+Math.cos(a+g)*innerR, cy+Math.sin(a+g)*innerR],
+      [cx+Math.cos(a+g)*r,      cy+Math.sin(a+g)*r],
+      [cx+Math.cos(a2-g)*r,     cy+Math.sin(a2-g)*r],
+      [cx+Math.cos(a2-g)*innerR,cy+Math.sin(a2-g)*innerR],
+    ];
+    return { d:`M${pts[0]}L${pts[1]}L${pts[2]}L${pts[3]}Z`, t:val/max, h:i };
+  });
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={innerR-4} fill="var(--bg-fog)" stroke="var(--border)" strokeWidth="1"/>
+      {segs.map((s,i)=>(
+        <path key={i} d={s.d} stroke="var(--bg)" strokeWidth="0.5"
+          fill={s.t>0.68
+            ? `rgba(230,0,35,${0.35+s.t*0.65})`
+            : `rgba(104,69,171,${0.15+s.t*0.55})`}/>
+      ))}
+      {['12a','3a','6a','9a','12p','3p','6p','9p'].map((lbl,i)=>{
+        const a=(i/8)*Math.PI*2-Math.PI/2;
+        const r=outerMax+14;
+        return <text key={i} x={cx+Math.cos(a)*r} y={cy+Math.sin(a)*r}
+          textAnchor="middle" dominantBaseline="middle" fontSize="8"
+          fill="var(--text-dim)" fontFamily="system-ui,sans-serif">{lbl}</text>;
+      })}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+        fontSize="10" fill="var(--text-dim)" fontFamily="system-ui,sans-serif">24h</text>
+    </svg>
+  );
+}
+
+function TimeSignature() {
+  const ts = d.time_signature;
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">02</div>
+      <div className="section-label">Time Signature</div>
+      <h2 className="section-title">When you listen</h2>
+      <p className="section-subtitle">Activity mapped across every hour of the day</p>
+      <div className="clock-wrap">
+        <RadialClock/>
+        <div>
+          <div className="clock-peak">{ts.peak_label}</div>
+          <div className="clock-peak-label">{ts.label} — peak listening hour</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <span className="pill red">{ts.pill}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── DECADE FINGERPRINT ─── */
+function DecadeFingerprint() {
+  const [ready,setReady] = useState(false);
+  useEffect(()=>{const t=setTimeout(()=>setReady(true),120);return()=>clearTimeout(t);},[]);
+  const df = d.decade_fingerprint;
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">03</div>
+      <div className="section-label">Decade Fingerprint</div>
+      <h2 className="section-title">Your era</h2>
+      <p className="section-subtitle">The decades that shaped your {d.period.label}</p>
+      <div className="decade-bars">
+        {df.decades.map((dec,i)=>(
+          <div key={dec.label} className="decade-row">
+            <div className="decade-label">{dec.label}</div>
+            <div className="decade-bar-track">
+              <div className="decade-bar-fill" style={{
+                width: ready ? `${dec.pct}%` : '0%',
+                background: dec.color,
+                transitionDelay: `${i*0.14}s`
+              }}/>
+            </div>
+            <div className="decade-pct">{dec.pct}%</div>
+          </div>
+        ))}
+      </div>
+      <div className="decade-meta">
+        {df.dominant && <span className="pill red">Dominant era: {df.dominant}</span>}
+        {df.earliest  && <span className="pill">Oldest spin: {df.earliest}</span>}
+        {df.latest    && <span className="pill">Newest: {df.latest}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ─── BINGE WEEKS ─── */
+function BingeWeeks() {
+  const [hov,setHov] = useState(null);
+  const bw = d.binge_weeks;
+  const weeks = bw.weeks;
+  const max = Math.max(...weeks.map(w=>w.val)) || 1;
+  const peakWeek = weeks.reduce((a,b)=>b.val>a.val?b:a, weeks[0]);
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">04</div>
+      <div className="section-label">Binge Weeks</div>
+      <h2 className="section-title">The obsession weeks</h2>
+      <p className="section-subtitle">Weekly scrobble volume — spikes mark the deep dives</p>
+      <div>
+        <div className="binge-axes">
+          {weeks.map((w,i)=>(
+            <div key={i} className={`binge-bar-wrap${w.spike?' spike':''}`}
+              onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)}>
+              {w.artist && (
+                <div className="binge-annotation" style={{opacity:hov===i||w.spike?1:0}}>
+                  <strong>{w.artist}</strong>{w.sc} scrobbles
+                </div>
+              )}
+              <div className="binge-bar" style={{
+                height:`${(w.val/max)*140}px`,
+                background: w.spike
+                  ? `linear-gradient(180deg,#e60023 0%,rgba(230,0,35,0.35) 100%)`
+                  : `linear-gradient(180deg,rgba(104,69,171,0.5) 0%,rgba(104,69,171,0.15) 100%)`,
+                boxShadow: w.spike ? '0 0 14px rgba(230,0,35,0.3)' : 'none'
+              }}/>
+            </div>
+          ))}
+        </div>
+        <div className="binge-weeks-labels">
+          {weeks.map((w,i)=><div key={i} className="binge-week-lbl">{w.label}</div>)}
+        </div>
+      </div>
+      <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap'}}>
+        {bw.binge_count > 0 && <span className="pill red">{bw.binge_count} obsession weeks</span>}
+        {bw.median > 0      && <span className="pill">Avg weekly: {bw.median}</span>}
+        {peakWeek           && <span className="pill plum">Peak: {peakWeek.val} ({peakWeek.label})</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ─── ARTIST LOYALTY ─── */
+function ArtistLoyalty() {
+  const al = d.artist_loyalty;
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">05</div>
+      <div className="section-label">Artist Loyalty</div>
+      <h2 className="section-title">Who stayed,<br/>who arrived</h2>
+      <p className="section-subtitle">Long-term relationships and fresh discoveries</p>
+      <div className="loyalty-cols">
+        <div className="loyalty-col">
+          <div className="loyalty-col-title">◈ Old Faithfuls</div>
+          {al.veterans.map(a=>(
+            <div key={a.name} className="loyalty-artist">
+              <span className="loyalty-name">{a.name}</span>
+              <span className="loyalty-badge">{a.badge}</span>
+            </div>
+          ))}
+        </div>
+        <div className="loyalty-col" style={{borderColor:'rgba(230,0,35,0.18)'}}>
+          <div className="loyalty-col-title" style={{color:'var(--red)'}}>◈ New Arrivals</div>
+          {al.newcomers.map(a=>(
+            <div key={a.name} className="loyalty-artist">
+              <span className="loyalty-name">{a.name}</span>
+              <span className="loyalty-badge" style={{background:'var(--red-dim)',borderColor:'rgba(230,0,35,0.2)',color:'var(--red)'}}>{a.badge}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── GUILTY PLEASURES ─── */
+function GuiltyPleasures() {
+  const [rev,setRev] = useState({});
+  const artists = d.guilty_pleasures;
+  if (!artists || artists.length === 0) return null;
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">06</div>
+      <div className="section-label">Guilty Pleasures</div>
+      <h2 className="section-title">You'd rather<br/>not admit it</h2>
+      <p className="section-subtitle">Artists listened to almost exclusively late at night — hover to reveal</p>
+      <div className="guilty-grid">
+        {artists.map((a,i)=>(
+          <div key={a.name} className="guilty-card"
+            style={{background:a.bg}}
+            onMouseEnter={()=>setRev(r=>({...r,[i]:true}))}
+            onMouseLeave={()=>setRev(r=>({...r,[i]:false}))}>
+            <div className="guilty-inner">
+              <div className="guilty-art" style={{background:'rgba(255,255,255,0.6)',color:a.color,fontSize:36,fontWeight:700}}>
+                {a.letter}
+              </div>
+              <div className="guilty-artist-name">{a.name}</div>
+              <div className="guilty-tag">{a.tag}</div>
+            </div>
+            {!rev[i] && <div className="guilty-blur-overlay">🫣</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── RECOMMENDATIONS ─── */
+function MusicalRoommates() {
+  const recs = d.recommendations;
+  if (!recs || recs.length === 0) return null;
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">07</div>
+      <div className="section-label">Musical Roommates</div>
+      <h2 className="section-title">What's next<br/>for you</h2>
+      <p className="section-subtitle">Suggested by the intersections of your listening</p>
+      <div className="rec-grid">
+        {recs.map(r=>(
+          <div key={r.name} className="rec-card">
+            <div className="rec-new-badge">⟶ Suggested for you</div>
+            <div className="rec-name">{r.name}</div>
+            <div className="rec-via">Because you love</div>
+            <div className="rec-tags">{r.via.map(v=><span key={v} className="rec-tag">{v}</span>)}</div>
+            {r.desc && <div className="rec-desc">{r.desc}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── ARTIFACTS ─── */
+function Artifacts() {
+  const cards = d.artifacts;
+  if (!cards || cards.length === 0) return null;
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">08</div>
+      <div className="section-label">Artifacts</div>
+      <h2 className="section-title">Records &<br/>anomalies</h2>
+      <p className="section-subtitle">The outliers that define the {d.period.label}</p>
+      <div className="artifact-grid">
+        {cards.map((c,i)=>(
+          <div key={i} className="artifact-card">
+            <div className="artifact-icon">{c.icon}</div>
+            <div className="artifact-value">{c.value}</div>
+            <div className="artifact-label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── NARRATIVE ─── */
+function Narrative() {
+  const sections = d.narrative && d.narrative.sections;
+
+  return (
+    <div className="section page-wrap">
+      <div className="section-num">09</div>
+      <div className="section-label">Narrative</div>
+      <h2 className="section-title" style={{marginBottom:32}}>The story</h2>
+      <div className="narrative-card">
+        {sections && sections.length > 0
+          ? sections.map((s,i)=>(
+              <div key={i} style={{marginBottom: i < sections.length-1 ? 28 : 0}}>
+                {s.title && <p style={{fontStyle:'normal',fontWeight:700,color:'var(--text)',marginBottom:8,fontSize:15}}>{s.title}</p>}
+                <p>{s.body}</p>
+              </div>
+            ))
+          : <p style={{color:'var(--text-dim)',fontStyle:'italic'}}>Narrative not generated. Re-run with <code>--narrative-out narrative.md</code>.</p>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ─── LOADING SCREEN ─── */
+const STEPS = [
+  'Fetching scrobble history…',
+  'Analysing listening patterns…',
+  'Detecting obsession weeks…',
+  'Mapping your decade fingerprint…',
+  'Identifying guilty pleasures…',
+  'Writing your story…',
+];
+
+function LoadingScreen({username, onDone}) {
+  const [step,setStep] = useState(0);
+  const [progress,setProgress] = useState(0);
+  const [exiting,setExiting] = useState(false);
+
+  useEffect(()=>{
+    let cur=0;
+    const adv = () => {
+      cur++;
+      setStep(cur);
+      setProgress(Math.round((cur/STEPS.length)*100));
+      if (cur>=STEPS.length) { setTimeout(()=>{ setExiting(true); setTimeout(onDone,550); },500); }
+      else setTimeout(adv, 430+Math.random()*260);
+    };
+    setTimeout(adv,400);
+  },[]);
+
+  return (
+    <div className={`loading-screen${exiting?' hidden':''}`}>
+      <div className="loading-username">Generating for <span>{username}</span></div>
+      <div className="loading-steps">
+        {STEPS.map((s,i)=>(
+          <div key={i} className={`loading-step${i===step?' active':i<step?' done':''}`}>
+            <div className="loading-dot"/>
+            {i<step?'✓ ':''}{s}
+          </div>
+        ))}
+      </div>
+      <div className="loading-bar-track">
+        <div className="loading-bar-fill" style={{width:`${progress}%`}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ─── WELCOME ─── */
+const PERIODS = [
+  { label: '7 days',   sub: 'last week',        days: 7   },
+  { label: '30 days',  sub: 'last month',        days: 30  },
+  { label: '90 days',  sub: 'last quarter',      days: 90  },
+  { label: '6 months', sub: 'half a year',       days: 180 },
+  { label: '1 year',   sub: 'full year',         days: 365 },
+  { label: 'All time', sub: 'since you started', days: null},
+];
+
+function WelcomeContent({onSubmit}) {
+  const [val,setPeriod2] = useState('');
+  const [period,setPeriod] = useState(2);
+  const ref = useRef(null);
+  useEffect(()=>{ ref.current && ref.current.focus(); },[]);
+  const go = () => { if(val.trim()) onSubmit(val.trim(), PERIODS[period]); };
+  const key = e => { if(e.key==='Enter') go(); };
+
+  return (
+    <div className="welcome-content">
+      <div className="welcome-logo">AI-Wrapped</div>
+      <h1 className="welcome-title">Your music,<br/><span>laid bare.</span></h1>
+      <p className="welcome-desc">Enter your Last.fm username, choose a time window and get a deep editorial report of your listening — habits, obsessions and guilty pleasures.</p>
+      <div className="period-label">Report period</div>
+      <div className="period-grid">
+        {PERIODS.map((p,i)=>(
+          <button key={i} className={`period-btn${period===i?' selected':''}`} onClick={()=>setPeriod(i)}>
+            {p.label}<small>{p.sub}</small>
+          </button>
+        ))}
+      </div>
+      <div className="welcome-input-row">
+        <input ref={ref} className="welcome-input" type="text" placeholder="your last.fm username"
+          value={val} onChange={e=>setPeriod2(e.target.value)} onKeyDown={key}
+          maxLength={32} spellCheck={false} autoComplete="off"/>
+        <button className="welcome-btn" onClick={go} disabled={!val.trim()}>Generate →</button>
+      </div>
+      <div className="welcome-hint">press Enter or click Generate</div>
+    </div>
+  );
+}
+
+/* ─── REPORT ─── */
+function Report({onReset}) {
+  const scrobblesLabel = d.scrobbles ? d.scrobbles.toLocaleString() : '';
+  return (
+    <div className="report-page visible">
+      <Hero/>
+      <TimeSignature/>
+      <DecadeFingerprint/>
+      <BingeWeeks/>
+      <ArtistLoyalty/>
+      <GuiltyPleasures/>
+      <MusicalRoommates/>
+      <Artifacts/>
+      <Narrative/>
+      <div className="footer">
+        <div className="footer-title">{d.user} · {d.period.label} Wrapped</div>
+        <div className="footer-sub">{scrobblesLabel ? `${scrobblesLabel} scrobbles · ` : ''}Generated by AI-Wrapped</div>
+        {onReset && <button className="footer-back" onClick={onReset}>← Generate for another user</button>}
+      </div>
+    </div>
+  );
+}
+
+/* ─── APP ─── */
+function App() {
+  // If WRAPPED_DATA injected → show report immediately, no welcome/loading
+  if (IS_STATIC) return <Report onReset={null}/>;
+
+  const [phase,   setPhase]   = useState('welcome');
+  const [username,setUsername]= useState('');
+  const [welExit, setWelExit] = useState(false);
+  const [repVis,  setRepVis]  = useState(false);
+
+  const handleSubmit = (name) => {
+    setUsername(name);
+    setWelExit(true);
+    setTimeout(()=>setPhase('loading'), 700);
+  };
+
+  const handleDone = () => {
+    setPhase('report');
+    setTimeout(()=>setRepVis(true), 40);
+  };
+
+  const reset = () => {
+    setPhase('welcome'); setWelExit(false); setRepVis(false); setUsername('');
+    window.scrollTo(0,0);
+  };
+
+  return (
+    <>
+      {phase==='welcome' && (
+        <div className={`welcome-screen${welExit?' exiting':''}`}>
+          <WelcomeContent onSubmit={handleSubmit}/>
+        </div>
+      )}
+      {phase==='loading' && <LoadingScreen username={username} onDone={handleDone}/>}
+      {phase==='report'  && <div className={`report-page${repVis?' visible':' hidden'}`}><Report onReset={reset}/></div>}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
