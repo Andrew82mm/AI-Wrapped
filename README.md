@@ -1,113 +1,162 @@
-# AI Wrapped
+# AI-Wrapped
 
 Spotify Wrapped, but with a narrative instead of numbers.
 
-Collects listening history from Last.fm, enriches each track with metadata
-from MusicBrainz + AcousticBrainz, extracts behavioral features, then uses
-an LLM to generate a personal text — not "you listened to 47 rock tracks",
-but "on Wednesday evening you switched from metal to Debussy".
+Pulls your Last.fm listening history, enriches tracks with metadata from
+MusicBrainz + AcousticBrainz, computes behavioral features, then sends
+the whole picture to an LLM that writes a personal editorial — not
+"you listened to 47 rock tracks", but "on Wednesday evenings you drift
+from metal into Debussy, every time".
 
-## Status
+---
 
-In development. Data collection, metadata enrichment, and feature extraction
-are complete. LLM narrative generation is next.
-
-## Stack
-
-- Python 3.12
-- Last.fm API — listening history, top charts, track tags
-- MusicBrainz — MBID, release year, canonical tags (no key required)
-- AcousticBrainz — mood, danceability, BPM, genre classifiers (frozen in 2022)
-- Genius API — release year fallback *(optional)*
-- Claude (Anthropic SDK) — narrative generation *(planned)*
-
-## Project structure
-
-```
-src/
-  lastfm/
-    client.py   — Last.fm API client: scrobbles, top charts, tags
-    parser.py   — raw JSON → pandas DataFrames
-    cache.py    — disk cache with TTL, fetch_or_update entry point
-    sessions.py — session detector and listening pattern finder
-  musicbrainz/
-    client.py   — recording search + MBID resolution, 1 req/sec rate limit
-  acousticbrainz/
-    client.py   — high-level (mood/genre) and low-level (bpm) features
-  genius/
-    client.py   — song search, release year extraction (optional)
-  metadata/
-    provider.py — TrackMetadata dataclass + unified resolver with parallel
-                  fetching and full fallback chain (MB → AB → LFM → Genius)
-  features/
-    decade.py       — decade distribution, dominant era label
-    binge.py        — weeks with listening spikes vs median
-    time_profile.py — peak hour, dominant time slot (night owl / early bird / …)
-    artist_loyalty.py — veteran artists (4+ active weeks) and newcomers
-    discovery.py    — new tracks per month, trend, explorer score
-tests/
-  test_parser.py
-  test_sessions.py
-  test_cache.py
-  test_metadata.py
-  test_features.py
-data/               — cached API responses (not in git)
-explore_lastfm.py   — Last.fm profile, sessions, patterns
-explore_metadata.py — per-track metadata enrichment with coverage report
-explore_features.py — compute all narrative features, print JSON context
-```
-
-## Quick start
-
-**1. Clone and set up the environment**
+## Quick start — web interface
 
 ```bash
 git clone https://github.com/Andrew82mm/AI-Wrapped
 cd AI-Wrapped
 python3 -m venv venv
-venv/bin/pip install requests python-dotenv pandas pytest pytest-mock
+venv/bin/pip install -r requirements.txt
+
+cp .env.example .env   # fill in the required keys (see below)
+
+venv/bin/python frontend/server.py
+# → open http://localhost:8000
 ```
 
-**2. Get a Last.fm API key**
+On the welcome screen you enter a Last.fm username, pick a time window
+(7 days → all time), and choose the narrative backend (Claude CLI or
+OpenRouter). The report generates in the background and streams progress
+to the browser.
 
-Register at [last.fm/api](https://www.last.fm/api/account/create).
-Callback URL and homepage can both be set to `http://localhost`.
+---
 
-MusicBrainz and AcousticBrainz require no key.
-Genius is optional — get a token at [genius.com/api-clients](https://genius.com/api-clients) if you want better release year coverage.
-
-**3. Create `.env`**
+## Quick start — CLI
 
 ```bash
-cp .env.example .env
-# Required: LASTFM_API_KEY, LASTFM_USERNAME, MUSICBRAINZ_CONTACT
-# Optional: GENIUS_ACCESS_TOKEN, ENRICH_TOP_N (default 50)
+venv/bin/python wrapped.py --user yourname --period last:90 --backend cli
 ```
 
-**4. Run**
+Useful flags:
 
-```bash
-venv/bin/python explore_lastfm.py    # profile, sessions, patterns
-venv/bin/python explore_metadata.py  # enrich top-N tracks with MB+AB+Genius
-venv/bin/python explore_features.py  # compute narrative features
+| Flag | Default | Description |
+|---|---|---|
+| `--user` | prompt | Last.fm username |
+| `--period` | lifetime | `last:N` / `YYYY` / `YYYY-MM-DD:YYYY-MM-DD` |
+| `--backend` | openrouter | `cli` (local Claude Code binary) or `openrouter` |
+| `--lang` | ru | narrative language: `ru` or `en` |
+| `--voice` | a | `a` = observational friend, `b` = music critic |
+| `--json out.json` | — | dump features JSON |
+| `--html report.html` | — | render self-contained HTML report |
+| `--stages` | all | `profile`, `metadata`, `features`, `narrative` |
+| `--top-n` | 50 | tracks to enrich with MusicBrainz/AcousticBrainz |
+
+---
+
+## Environment variables (`.env`)
+
+```dotenv
+# Required
+LASTFM_API_KEY=...          # last.fm/api/account/create
+MUSICBRAINZ_CONTACT=...     # your email — required by MusicBrainz ToS
+
+# Narrative backends (one is enough)
+OPENROUTER_API_KEY=...      # openrouter.ai — for --backend openrouter
+# Claude CLI backend uses the local `claude` binary — no extra key needed
+
+# Optional
+GENIUS_ACCESS_TOKEN=...     # better release-year coverage
+ENRICH_TOP_N=50             # how many top tracks to enrich
+OPENROUTER_MODEL=...        # override default model
+LASTFM_USERNAME=...         # skip the username prompt in CLI mode
 ```
 
-Cache strategy: Last.fm responses — 6 hours; full scrobble history — 24 hours;
-track metadata — 30 days (MBID and release year don't change).
+---
 
-MusicBrainz is rate-limited to 1 req/sec. Enrichment is capped at top N tracks
-(default 50, override via `ENRICH_TOP_N`). Second run is instant from cache.
+## How it works
+
+```
+Last.fm API
+  ↓ scrobble history, top artists/tracks/albums
+MusicBrainz + AcousticBrainz
+  ↓ MBID, release year, mood, BPM, genre
+Feature extraction
+  ↓ 9 behavioral signals (see below)
+LLM (Claude CLI or OpenRouter)
+  ↓ editorial narrative, verified against artist whitelist
+HTML report
+```
+
+### Features computed
+
+| Feature | What it captures |
+|---|---|
+| `time_signature` | Peak hour, dominant time slot (night owl / early bird / …) |
+| `decade_fingerprint` | Decade distribution of listened tracks, dominant era |
+| `binge_weeks` | Weeks with listening spikes vs personal median |
+| `artist_loyalty` | Veterans (4+ active weeks) and new arrivals |
+| `discovery_rate` | New tracks per month, explorer score, trend |
+| `listening_style` | Obsessive vs collector vs explorer, top obsession track |
+| `guilty_pleasures` | Artists listened to almost exclusively late at night |
+| `musical_roommates` | Artist recommendations via Last.fm similarity graph |
+| `artifacts` | Longest session, streak, peak day, longest silence |
+
+---
+
+## Project structure
+
+```
+src/
+  lastfm/       — API client, parser, disk cache, session detector
+  musicbrainz/  — recording search, MBID resolution (1 req/sec)
+  acousticbrainz/ — mood, genre, BPM classifiers
+  genius/       — release year fallback (optional)
+  metadata/     — unified TrackMetadata resolver with full fallback chain
+  features/     — all 9 feature modules
+  narrative/    — prompt builder, LLM caller, hallucination verifier
+
+frontend/
+  server.py     — FastAPI server: /api/generate, /api/status, /api/result
+  index.html    — React web app (CDN Babel, no build step)
+  template.html — static self-contained HTML report (via --html flag)
+  render.py     — transforms feature JSON → frontend data format
+
+tests/          — 224 unit tests, no network calls
+data/           — per-user cache (not in git): data/<username>/
+wrapped.py      — CLI entry point
+```
+
+---
+
+## Narrative backends
+
+**Claude CLI** (`--backend cli`)  
+Uses the local `claude` binary from Claude Code. No API key needed beyond
+what Claude Code already has. Timeout: 5 minutes. Good for local use.
+
+**OpenRouter** (`--backend openrouter`)  
+Calls any model via the OpenRouter API. Default: `nvidia/nemotron-3-super-120b-a12b:free`.
+Override via `OPENROUTER_MODEL`. Retries on 429 with exponential backoff (up to 4×).
+
+---
+
+## Per-user cache
+
+Each user's data lives in `data/<username>/`. Multiple users can be
+processed without collision. Cache TTL:
+
+- Scrobble history: 24 hours
+- Top charts: 6 hours  
+- Track metadata (MB/AB): 30 days
+
+---
 
 ## Tests
 
 ```bash
-venv/bin/pytest tests/ -v
+venv/bin/pytest tests/ -q
+# 224 tests, ~9s, no network calls
 ```
 
-82 tests. CI runs on every push and pull request to `main`.
-
-## Planned
-
-- LLM narrative generation (Claude, Anthropic SDK, prompt caching)
-- Hallucination guard — verify all mentioned artists exist in input context
-- CLI entry point `wrapped.py` — single command, formatted output
+Integration tests (real API calls) are in `test_metadata_integration.py`
+and are excluded from the default run.

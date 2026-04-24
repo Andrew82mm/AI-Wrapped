@@ -1047,10 +1047,16 @@ const PERIODS=[
   {label:'All time',sub:'since you started', value:'lifetime', days:null},
 ];
 
+const BACKENDS=[
+  {value:'cli',      label:'Claude CLI',     sub:'local, no API key'},
+  {value:'openrouter',label:'OpenRouter',    sub:'requires OPENROUTER_API_KEY'},
+];
+
 function WelcomeScreen({onSubmit}) {
-  const [val,     setVal]    = useState('');
-  const [periodI, setPeriodI]= useState(2);
-  const [error,   setError]  = useState('');
+  const [val,       setVal]      = useState('');
+  const [periodI,   setPeriodI]  = useState(2);
+  const [backendI,  setBackendI] = useState(0);
+  const [error,     setError]    = useState('');
   const ref=useRef(null);
   useEffect(()=>{ref.current&&ref.current.focus();},[]);
 
@@ -1058,7 +1064,7 @@ function WelcomeScreen({onSubmit}) {
     const u=val.trim();
     if(!u){setError('Enter your Last.fm username');return;}
     setError('');
-    onSubmit(u, PERIODS[periodI]);
+    onSubmit(u, PERIODS[periodI], BACKENDS[backendI].value);
   };
 
   return(
@@ -1075,6 +1081,14 @@ function WelcomeScreen({onSubmit}) {
           {PERIODS.map((p,i)=>(
             <button key={i} className={`period-btn${periodI===i?' selected':''}`} onClick={()=>setPeriodI(i)}>
               {p.label}<small>{p.sub}</small>
+            </button>
+          ))}
+        </div>
+        <div className="period-label" style={{marginTop:20}}>Narrative backend</div>
+        <div className="period-grid" style={{gridTemplateColumns:'repeat(2,1fr)'}}>
+          {BACKENDS.map((b,i)=>(
+            <button key={i} className={`period-btn${backendI===i?' selected':''}`} onClick={()=>setBackendI(i)}>
+              {b.label}<small>{b.sub}</small>
             </button>
           ))}
         </div>
@@ -1100,14 +1114,14 @@ function App() {
   const [reportData,setData]   = useState(null);
   const [errMsg,   setErr]     = useState('');
 
-  const handleSubmit=async(name, per)=>{
+  const handleSubmit=async(name, per, backend)=>{
     setUsername(name); setPeriod(per); setErr('');
     setPhase('loading');
     try{
       const r=await fetch('/api/generate',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({username:name, period:per.value, backend:'cli'}),
+        body:JSON.stringify({username:name, period:per.value, backend:backend||'cli'}),
       });
       const j=await r.json();
       if(!j.job_id) throw new Error(j.detail||'Server error');
