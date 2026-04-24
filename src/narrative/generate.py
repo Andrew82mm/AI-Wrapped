@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 
 import requests
@@ -21,8 +24,10 @@ from .prompt import system_prompt, user_prompt
 from .verify import VerifyResult, verify_names
 
 
-DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+_CLAUDE_BIN = shutil.which("claude") or "/home/andrew/.vscode-oss/extensions/anthropic.claude-code-2.1.119-linux-x64/resources/native-binary/claude"
 
 
 @dataclass
@@ -66,8 +71,14 @@ def _call_openrouter(
     model: str,
     temperature: float,
     timeout: int,
+    rate_limit_retries: int = 4,
+    rate_limit_backoff: float = 15.0,
 ) -> str:
-    """POST to OpenRouter and return the assistant message content."""
+    """POST to OpenRouter and return the assistant message content.
+
+    Retries up to `rate_limit_retries` times on 429 with exponential backoff,
+    since free-tier models are often temporarily rate-limited upstream.
+    """
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -81,16 +92,45 @@ def _call_openrouter(
         ],
         "response_format": {"type": "json_object"},
     }
-    resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
-    if resp.status_code != 200:
-        raise NarrativeError(
-            f"OpenRouter {resp.status_code}: {resp.text[:500]}"
-        )
+    for attempt in range(rate_limit_retries + 1):
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
+        if resp.status_code == 429 and attempt < rate_limit_retries:
+            wait = rate_limit_backoff * (2 ** attempt)
+            print(f"[narrative] rate-limited (429), retrying in {wait:.0f}s "
+                  f"(attempt {attempt + 1}/{rate_limit_retries})...")
+            time.sleep(wait)
+            continue
+        if resp.status_code != 200:
+            raise NarrativeError(
+                f"OpenRouter {resp.status_code}: {resp.text[:500]}"
+            )
+        break
     data = resp.json()
     try:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as e:
         raise NarrativeError(f"Malformed OpenRouter response: {data!r}") from e
+
+
+def _call_claude_cli(system: str, user: str, *, timeout: int) -> str:
+    """Call the local claude CLI binary (Claude Code) in print mode.
+
+    Used for local testing without an OpenRouter key. Passes system + user
+    prompt concatenated, since the CLI doesn't have separate role args.
+    """
+    if not os.path.exists(_CLAUDE_BIN):
+        raise NarrativeError(f"Claude CLI not found at {_CLAUDE_BIN!r}")
+    prompt = f"{system}\n\n---\n\n{user}"
+    try:
+        result = subprocess.run(
+            [_CLAUDE_BIN, "-p", prompt],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise NarrativeError(f"Claude CLI timed out after {timeout}s") from e
+    if result.returncode != 0:
+        raise NarrativeError(f"Claude CLI error: {result.stderr[:500]}")
+    return result.stdout.strip()
 
 
 def generate_narrative(
@@ -103,6 +143,7 @@ def generate_narrative(
     temperature: float = 0.8,
     timeout: int = 90,
     max_retries: int = 1,
+    backend: str = "openrouter",
 ) -> Narrative:
     """Generate a Wrapped narrative from the full `wrapped.py --json` payload.
 
@@ -110,11 +151,12 @@ def generate_narrative(
     first output mentions artists outside the whitelist. After the retry the
     result is returned regardless — with `verify.ok=False` if still invalid.
     """
-    api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise NarrativeError(
-            "OPENROUTER_API_KEY is not set. Add it to .env or pass api_key=."
-        )
+    if backend == "openrouter":
+        api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise NarrativeError(
+                "OPENROUTER_API_KEY is not set. Add it to .env or pass api_key=."
+            )
     model = model or os.getenv("OPENROUTER_MODEL") or DEFAULT_MODEL
 
     context = build_context(payload)
@@ -132,11 +174,14 @@ def generate_narrative(
         if attempt > 0 and last_result is not None:
             retry_system = system + "\n\nRETRY NOTE: " + last_result.error_hint()
 
-        last_raw = _call_openrouter(
-            retry_system, user,
-            api_key=api_key, model=model,
-            temperature=temperature, timeout=timeout,
-        )
+        if backend == "cli":
+            last_raw = _call_claude_cli(retry_system, user, timeout=timeout)
+        else:
+            last_raw = _call_openrouter(
+                retry_system, user,
+                api_key=api_key, model=model,
+                temperature=temperature, timeout=timeout,
+            )
         try:
             last_parsed = _extract_json(last_raw)
         except json.JSONDecodeError as e:

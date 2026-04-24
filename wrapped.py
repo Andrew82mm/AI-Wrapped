@@ -277,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
         "--narrative-out", default=None,
         help="write generated narrative (markdown) to this path",
     )
+    parser.add_argument(
+        "--backend", default="openrouter", choices=("openrouter", "cli"),
+        help="LLM backend: openrouter (default) or cli (local claude binary, no API key needed)",
+    )
     args = parser.parse_args(argv)
 
     stages = _parse_stages(args.stages)
@@ -344,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             "features": features,
         }
         try:
-            narr = generate_narrative(payload, voice=args.voice, lang=args.lang)
+            narr = generate_narrative(payload, voice=args.voice, lang=args.lang, backend=args.backend)
         except NarrativeError as e:
             print(f"[narrative] failed: {e}", file=sys.stderr)
             return 1
