@@ -9,10 +9,16 @@ import pytest
 from src.narrative.context import build_allowed_names, build_context
 from src.narrative.prompt import system_prompt, user_prompt, VOICES, LANGS
 from src.narrative.verify import verify_names
+import subprocess
+
+import subprocess
+
 from src.narrative.generate import (
     Narrative,
     NarrativeError,
     _extract_json,
+    _call_claude_cli,
+    _call_openrouter,
     generate_narrative,
 )
 
@@ -236,3 +242,107 @@ def test_narrative_as_text_renders_sections_as_markdown():
     text = n.as_text()
     assert "## T1" in text and "B1" in text
     assert "## T2" in text and "B2" in text
+
+
+# --- _call_claude_cli --------------------------------------------------------
+
+def _mock_completed_process(stdout: str = "", returncode: int = 0, stderr: str = ""):
+    p = subprocess.CompletedProcess(args=[], returncode=returncode)
+    p.stdout = stdout
+    p.stderr = stderr
+    return p
+
+
+def test_call_claude_cli_returns_stdout():
+    output = '{"sections": [], "artists_mentioned": []}'
+    with patch("src.narrative.generate.subprocess.run",
+               return_value=_mock_completed_process(stdout=output)):
+        with patch("src.narrative.generate.os.path.exists", return_value=True):
+            result = _call_claude_cli("sys", "usr", timeout=30)
+    assert result == output
+
+
+def test_call_claude_cli_raises_on_nonzero_returncode():
+    with patch("src.narrative.generate.subprocess.run",
+               return_value=_mock_completed_process(returncode=1, stderr="error")):
+        with patch("src.narrative.generate.os.path.exists", return_value=True):
+            with pytest.raises(NarrativeError, match="Claude CLI error"):
+                _call_claude_cli("sys", "usr", timeout=30)
+
+
+def test_call_claude_cli_raises_on_timeout():
+    with patch("src.narrative.generate.subprocess.run",
+               side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=30)):
+        with patch("src.narrative.generate.os.path.exists", return_value=True):
+            with pytest.raises(NarrativeError, match="timed out"):
+                _call_claude_cli("sys", "usr", timeout=30)
+
+
+def test_call_claude_cli_raises_when_binary_missing():
+    with patch("src.narrative.generate.os.path.exists", return_value=False):
+        with pytest.raises(NarrativeError, match="not found"):
+            _call_claude_cli("sys", "usr", timeout=30)
+
+
+# --- generate_narrative with CLI backend ------------------------------------
+
+def test_generate_narrative_cli_backend_happy_path():
+    output = _valid_model_output()
+    with patch("src.narrative.generate.os.path.exists", return_value=True):
+        with patch("src.narrative.generate.subprocess.run",
+                   return_value=_mock_completed_process(stdout=output)):
+            narr = generate_narrative(
+                {"user": "u", "features": SAMPLE_FEATURES},
+                backend="cli",
+            )
+    assert len(narr.sections) == 1
+    assert narr.verify.ok
+
+
+def test_generate_narrative_cli_backend_propagates_timeout():
+    with patch("src.narrative.generate.os.path.exists", return_value=True):
+        with patch("src.narrative.generate.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=300)):
+            with pytest.raises(NarrativeError, match="timed out"):
+                generate_narrative(
+                    {"user": "u", "features": SAMPLE_FEATURES},
+                    backend="cli",
+                )
+
+
+# --- 429 retry logic ---------------------------------------------------------
+
+def test_openrouter_retries_on_429_then_succeeds():
+    good_resp = _mk_response({"choices": [{"message": {"content": _valid_model_output()}}]})
+
+    class RateLimit:
+        status_code = 429
+        text = "rate limited"
+        def json(self): return {}
+
+    responses = [RateLimit(), good_resp]
+    payload = {"user": "u", "features": SAMPLE_FEATURES}
+
+    with patch("src.narrative.generate.requests.post", side_effect=responses):
+        with patch("src.narrative.generate.time.sleep"):
+            narr = generate_narrative(payload, api_key="k",
+                                      backend="openrouter")
+    assert narr.verify.ok
+
+
+def test_openrouter_raises_after_all_retries_exhausted():
+    class RateLimit:
+        status_code = 429
+        text = "rate limited"
+        def json(self): return {}
+
+    with patch("src.narrative.generate.requests.post",
+               side_effect=[RateLimit()] * 10):
+        with patch("src.narrative.generate.time.sleep"):
+            with pytest.raises(NarrativeError, match="429"):
+                _call_openrouter(
+                    "sys", "usr",
+                    api_key="k", model="m",
+                    temperature=0.8, timeout=10,
+                    rate_limit_retries=2,
+                )

@@ -110,3 +110,58 @@ class TestFetchOrUpdate:
         cache_module.fetch_or_update("test", lambda: {"saved": True})
         payload = json.loads((tmp_path / "test.json").read_text())
         assert payload["data"] == {"saved": True}
+
+
+# --- cache_dir parameter (per-user isolation) --------------------------------
+
+class TestCacheDirParam:
+    """Ensure that passing cache_dir routes files to that directory, not CACHE_DIR."""
+
+    def test_load_reads_from_cache_dir(self, tmp_path):
+        user_dir = tmp_path / "alice"
+        user_dir.mkdir()
+        (user_dir / "scrobbles.json").write_text(FRESH_PAYLOAD)
+        result = cache_module.load("scrobbles", cache_dir=str(user_dir))
+        assert result == {"key": "value"}
+
+    def test_load_does_not_read_from_global_cache_dir(self, tmp_path, monkeypatch):
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        user_dir = tmp_path / "alice"
+        user_dir.mkdir()
+        # File exists in global, not in user dir
+        (global_dir / "scrobbles.json").write_text(FRESH_PAYLOAD)
+        monkeypatch.setattr(cache_module, "CACHE_DIR", str(global_dir))
+        result = cache_module.load("scrobbles", cache_dir=str(user_dir))
+        assert result is None
+
+    def test_save_writes_to_cache_dir(self, tmp_path):
+        user_dir = tmp_path / "bob"
+        user_dir.mkdir()
+        cache_module.save("tracks", [1, 2, 3], cache_dir=str(user_dir))
+        assert (user_dir / "tracks.json").exists()
+        payload = json.loads((user_dir / "tracks.json").read_text())
+        assert payload["data"] == [1, 2, 3]
+
+    def test_save_creates_cache_dir_if_missing(self, tmp_path):
+        user_dir = tmp_path / "charlie" / "nested"
+        cache_module.save("info", {"ok": True}, cache_dir=str(user_dir))
+        assert (user_dir / "info.json").exists()
+
+    def test_fetch_or_update_uses_cache_dir(self, tmp_path):
+        user_dir = tmp_path / "dave"
+        user_dir.mkdir()
+        (user_dir / "top.json").write_text(FRESH_PAYLOAD)
+        called = []
+        cache_module.fetch_or_update("top", lambda: called.append(1) or {},
+                                     cache_dir=str(user_dir))
+        assert called == [], "Should have hit cache, not called fetch_fn"
+
+    def test_two_users_isolated(self, tmp_path):
+        dir_a = tmp_path / "userA"
+        dir_b = tmp_path / "userB"
+        dir_a.mkdir(); dir_b.mkdir()
+        cache_module.save("info", {"user": "A"}, cache_dir=str(dir_a))
+        cache_module.save("info", {"user": "B"}, cache_dir=str(dir_b))
+        assert cache_module.load("info", cache_dir=str(dir_a)) == {"user": "A"}
+        assert cache_module.load("info", cache_dir=str(dir_b)) == {"user": "B"}
