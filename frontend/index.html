@@ -786,6 +786,19 @@ function Report({d, onReset}) {
   const al=d.artist_loyalty;
   const secs=d.narrative&&d.narrative.sections;
 
+  const NarrativeSec=({idx})=>{
+    if(!secs||!secs[idx])return null;
+    const s=secs[idx];
+    return(
+      <div className="page-wrap" style={{paddingTop:0,paddingBottom:48}}>
+        <div className="narrative-card">
+          {s.title&&<p style={{fontStyle:'normal',fontWeight:700,color:'var(--text)',marginBottom:8,fontSize:15}}>{s.title}</p>}
+          <p style={{margin:0}}>{s.body}</p>
+        </div>
+      </div>
+    );
+  };
+
   return(
     <div className="report-page visible">
       {/* HERO */}
@@ -821,6 +834,7 @@ function Report({d, onReset}) {
           </div>
         </div>
       </div>
+      <NarrativeSec idx={0}/>
 
       {/* DECADES */}
       {df.decades&&df.decades.length>0&&(
@@ -845,6 +859,7 @@ function Report({d, onReset}) {
         </div>
       </div>
       )}
+      <NarrativeSec idx={1}/>
 
       {/* BINGE WEEKS */}
       {bw.weeks&&bw.weeks.length>0&&(
@@ -871,6 +886,7 @@ function Report({d, onReset}) {
         </div>
       </div>
       )}
+      <NarrativeSec idx={2}/>
 
       {/* LOYALTY */}
       <div className="section page-wrap">
@@ -889,6 +905,7 @@ function Report({d, onReset}) {
           </div>
         </div>
       </div>
+      <NarrativeSec idx={3}/>
 
       {/* GUILTY */}
       {d.guilty_pleasures&&d.guilty_pleasures.length>0&&(
@@ -907,6 +924,7 @@ function Report({d, onReset}) {
         </div>
       </div>
       )}
+      <NarrativeSec idx={4}/>
 
       {/* RECS */}
       {d.recommendations&&d.recommendations.length>0&&(
@@ -928,6 +946,7 @@ function Report({d, onReset}) {
         </div>
       </div>
       )}
+      <NarrativeSec idx={5}/>
 
       {/* ARTIFACTS */}
       {d.artifacts&&d.artifacts.length>0&&(
@@ -941,24 +960,16 @@ function Report({d, onReset}) {
         </div>
       </div>
       )}
+      <NarrativeSec idx={6}/>
 
-      {/* NARRATIVE */}
-      <div className="section page-wrap">
-        <div className="section-num">09</div>
-        <div className="section-label">Narrative</div>
-        <h2 className="section-title" style={{marginBottom:32}}>The story</h2>
+      {/* fallback: show error only if narrative generation failed completely */}
+      {(!secs||secs.length===0)&&(
+      <div className="page-wrap" style={{paddingTop:0,paddingBottom:48}}>
         <div className="narrative-card">
-          {secs&&secs.length>0
-            ? secs.map((s,i)=>(
-                <div key={i} style={{marginBottom:i<secs.length-1?28:0}}>
-                  {s.title&&<p style={{fontStyle:'normal',fontWeight:700,color:'var(--text)',marginBottom:8,fontSize:15}}>{s.title}</p>}
-                  <p>{s.body}</p>
-                </div>
-              ))
-            : <p style={{color:'var(--text-dim)',fontStyle:'italic'}}>Narrative generation failed or was skipped. Run the server with <code>--backend cli</code> and check stderr for errors.</p>
-          }
+          <p style={{color:'var(--text-dim)',fontStyle:'italic',margin:0}}>Narrative generation failed or was skipped. Check server stderr for errors.</p>
         </div>
       </div>
+      )}
 
       <div className="footer">
         <div className="footer-title">{d.user} · {d.period.label} Wrapped</div>
