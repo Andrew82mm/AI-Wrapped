@@ -6,13 +6,17 @@ with granular stage selection so you don't pay for what you don't need.
 
 Usage
 -----
-  python wrapped.py                     # full pipeline
-  python wrapped.py --stages profile    # just profile + sessions
-  python wrapped.py --stages features   # features only (needs cached data)
-  python wrapped.py --period 2025       # scope to calendar year 2025
-  python wrapped.py --period last:90    # scope to last 90 days
-  python wrapped.py --json out.json     # dump LLM context to file
-  python wrapped.py --top-n 100         # override ENRICH_TOP_N
+  python wrapped.py                          # full pipeline (prompts for username)
+  python wrapped.py --user someuser          # skip prompt, use this username
+  python wrapped.py --stages profile        # just profile + sessions
+  python wrapped.py --stages features       # features only (needs cached data)
+  python wrapped.py --period 2025           # scope to calendar year 2025
+  python wrapped.py --period last:90        # scope to last 90 days
+  python wrapped.py --json out.json         # dump LLM context to file
+  python wrapped.py --top-n 100             # override ENRICH_TOP_N
+
+Each user's cache lives in data/<username>/. Shared metadata (tracks, tags)
+stays in data/ and is reused across users.
 
 Stages can be combined: --stages profile,metadata or just --stages all.
 """
@@ -104,7 +108,7 @@ def _header(title: str) -> None:
 
 # --- stages -----------------------------------------------------------------
 
-def run_profile(lastfm: LastFMClient, username: str, *, verbose: bool) -> dict:
+def run_profile(lastfm: LastFMClient, username: str, *, verbose: bool, cache_dir: str) -> dict:
     """Pull user info + top artists/tracks/albums + full scrobble history.
 
     Returns a dict with parsed DataFrames and session list — everything
@@ -115,28 +119,33 @@ def run_profile(lastfm: LastFMClient, username: str, *, verbose: bool) -> dict:
         _header("PROFILE")
 
     info = fetch_or_update(
-        f"{username}_info",
+        "info",
         lambda: lastfm.get_user_info(username),
         max_age_hours=24,
+        cache_dir=cache_dir,
     )
     registered = datetime.fromtimestamp(int(info["registered"]["unixtime"]))
 
     raw_artists = fetch_or_update(
-        f"{username}_top_artists_3month",
+        "top_artists_3month",
         lambda: lastfm.get_top_artists(username, period="3month", limit=50),
+        cache_dir=cache_dir,
     )
     raw_tracks_top = fetch_or_update(
-        f"{username}_top_tracks_3month",
+        "top_tracks_3month",
         lambda: lastfm.get_top_tracks(username, period="3month", limit=50),
+        cache_dir=cache_dir,
     )
     raw_albums = fetch_or_update(
-        f"{username}_top_albums_3month",
+        "top_albums_3month",
         lambda: lastfm.get_top_albums(username, period="3month", limit=50),
+        cache_dir=cache_dir,
     )
     raw_all = fetch_or_update(
-        f"{username}_all_scrobbles",
+        "all_scrobbles",
         lambda: lastfm.get_recent_tracks(username),
         max_age_hours=24,
+        cache_dir=cache_dir,
     )
 
     df_artists = parse_top_artists(raw_artists)
@@ -281,6 +290,10 @@ def main(argv: list[str] | None = None) -> int:
         "--backend", default="openrouter", choices=("openrouter", "cli"),
         help="LLM backend: openrouter (default) or cli (local claude binary, no API key needed)",
     )
+    parser.add_argument(
+        "--user", default=None,
+        help="Last.fm username (overrides LASTFM_USERNAME from .env; prompts if neither is set)",
+    )
     args = parser.parse_args(argv)
 
     stages = _parse_stages(args.stages)
@@ -288,20 +301,32 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()
     api_key = os.getenv("LASTFM_API_KEY")
-    username = os.getenv("LASTFM_USERNAME")
     mb_contact = os.getenv("MUSICBRAINZ_CONTACT")
     genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
     top_n = args.top_n or int(os.getenv("ENRICH_TOP_N", "50"))
 
-    if not all([api_key, username, mb_contact]):
-        print("Missing env vars — set LASTFM_API_KEY, LASTFM_USERNAME, "
-              "MUSICBRAINZ_CONTACT in .env", file=sys.stderr)
+    # Resolve username: CLI arg > .env > interactive prompt
+    username = args.user or os.getenv("LASTFM_USERNAME")
+    if not username:
+        username = input("Last.fm username: ").strip()
+        if not username:
+            print("Username is required.", file=sys.stderr)
+            return 2
+
+    if not all([api_key, mb_contact]):
+        print("Missing env vars — set LASTFM_API_KEY, MUSICBRAINZ_CONTACT in .env",
+              file=sys.stderr)
         return 2
+
+    # Per-user cache dir; shared metadata (meta_*, tags_*) stays in data/
+    base_dir = os.path.join(os.path.dirname(__file__), "data")
+    user_cache_dir = os.path.join(base_dir, username)
+    os.makedirs(user_cache_dir, exist_ok=True)
 
     lastfm = LastFMClient(api_key)
 
     # --- profile (always needed if downstream stages are requested) ---
-    ctx = run_profile(lastfm, username, verbose=verbose)
+    ctx = run_profile(lastfm, username, verbose=verbose, cache_dir=user_cache_dir)
     df_all_full = ctx["df_all"]
 
     # Scope to period. `df_top_tracks` comes from LFM's own "3month" window

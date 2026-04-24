@@ -29,6 +29,11 @@ _OUTPUT_CONTRACT_RU = """Верни СТРОГО JSON без markdown-обёрт
   артисты/треки/альбомы — герои, а не элементы списка.
 - Никаких «это был год...», «ваш саундтрек», «музыка была с вами», «вы
   открыли для себя», «год запомнился». Просто сцена или наблюдение.
+- Одна из секций ОБЯЗАТЕЛЬНО посвящена рекомендациям из блока
+  `musical_roommates.recommendations`. Подай их живо: не списком, а как
+  логичное продолжение вкуса — «если ты так слушаешь X, то тебе давно
+  пора к Y». Используй поле `suggested_by`, чтобы показать связь между
+  любимыми артистами и рекомендацией.
 - `artists_mentioned` должен содержать ВСЕ имена артистов, названия треков
   и альбомов, которые ты упомянул в тексте. Мы проверяем этот список против
   входных данных. Если в тексте появляется артист, трек или альбом,
@@ -55,6 +60,11 @@ Requirements:
   artists/tracks/albums are characters, not list items.
 - No phrases like "this was the year of...", "your soundtrack", "music was
   with you", "you discovered". Just a scene or an observation.
+- One section MUST be dedicated to recommendations from
+  `musical_roommates.recommendations`. Present them as a natural extension
+  of the listener's taste — not a list, but something like "if you loop X
+  that much, you're clearly ready for Y". Use `suggested_by` to show the
+  link between their favourite artists and each recommendation.
 - `artists_mentioned` must list EVERY artist, track, and album name you
   mention in the text. We validate this list against the input. Any name
   that appears in your text but is absent from the input `features` block
