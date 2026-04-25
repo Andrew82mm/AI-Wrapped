@@ -3,6 +3,8 @@ import requests
 
 
 BASE_URL = "https://ws.audioscrobbler.com/2.0/"
+_RETRY_STATUSES = {500, 502, 503, 504}
+_MAX_RETRIES = 4
 
 
 class LastFMClient:
@@ -14,19 +16,34 @@ class LastFMClient:
     def _get(self, method: str, **params) -> dict:
         """Send a GET request to the Last.fm API and return the parsed JSON.
 
-        Raises ValueError on API-level errors (e.g. invalid user, bad method).
+        Retries up to _MAX_RETRIES times on 5xx responses (transient server
+        errors) with exponential backoff before raising. Raises ValueError on
+        API-level errors (e.g. invalid user, bad method).
         """
-        response = self.session.get(BASE_URL, params={
+        req_params = {
             "method": method,
             "api_key": self.api_key,
             "format": "json",
             **params,
-        })
-        response.raise_for_status()
-        data = response.json()
-        if "error" in data:
-            raise ValueError(f"Last.fm API error {data['error']}: {data['message']}")
-        return data
+        }
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self.session.get(BASE_URL, params=req_params)
+                if response.status_code in _RETRY_STATUSES:
+                    raise requests.HTTPError(
+                        f"{response.status_code} Server Error", response=response
+                    )
+                response.raise_for_status()
+                data = response.json()
+                if "error" in data:
+                    raise ValueError(f"Last.fm API error {data['error']}: {data['message']}")
+                return data
+            except requests.HTTPError as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)  # 1s, 2s, 4s
+        raise last_exc
 
     def get_recent_tracks(self, username: str, from_ts: int = None, to_ts: int = None, limit: int = 200) -> list[dict]:
         """Fetch all scrobbles for a user, handling pagination automatically.

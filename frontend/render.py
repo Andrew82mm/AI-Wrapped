@@ -69,6 +69,48 @@ def _first_week_to_date(iso_week: str) -> str:
         return iso_week
 
 
+def compute_archetype(features: dict) -> dict:
+    ts   = features.get("time_signature", {})
+    ls   = features.get("listening_style", {})
+    dr   = features.get("discovery_rate", {})
+    bw   = features.get("binge_weeks", {})
+    df   = features.get("decade_fingerprint", {})
+    al   = features.get("artist_loyalty", {})
+
+    slot             = ts.get("dominant_slot", "evening") or "evening"
+    style            = ls.get("label", "balanced") or "balanced"
+    explorer_score   = dr.get("explorer_score", 0) or 0
+    trend            = dr.get("trend", "stable") or "stable"
+    binge_count      = bw.get("binge_count", 0) or 0
+    dominant_decade  = df.get("dominant_decade", "") or ""
+    veterans         = al.get("veterans") or []
+    repeat_intensity = ls.get("repeat_intensity", 0) or 0
+
+    if slot == "night" and style == "obsessive":
+        return {"nickname": "Полночный одержимый", "tagline": "Ночь — единственное время, когда треки слышны правильно", "emoji": "🌙"}
+    if explorer_score > 0.5 and trend == "growing":
+        return {"nickname": "Неутомимый исследователь", "tagline": "Ни один плейлист нельзя слушать дважды", "emoji": "🔭"}
+    if binge_count >= 4:
+        return {"nickname": "Машина для биндж-прослушивания", "tagline": "Либо всё, либо ничего. Чаще всего — всё", "emoji": "⚡"}
+    if len(veterans) >= 4 and explorer_score < 0.35:
+        return {"nickname": "Верный хранитель", "tagline": "Любимые артисты — как старые друзья. Зачем новые?", "emoji": "🔒"}
+    if dominant_decade and dominant_decade <= "2000s":
+        return {"nickname": "Меломан не своего времени", "tagline": "Лучшая музыка уже была написана", "emoji": "📼"}
+    if style == "collector":
+        return {"nickname": "Коллекционер звука", "tagline": "Чем больше треков, тем лучше. Всегда", "emoji": "📀"}
+    if slot in ("night", "late_night") and repeat_intensity >= 10:
+        return {"nickname": "Ночной гурман", "tagline": "После 22:00 начинается настоящая музыка", "emoji": "🍷"}
+    if slot in ("night", "late_night"):
+        return {"nickname": "Полночный слушатель", "tagline": "Тишина дня — только фон для ночных треков", "emoji": "🦉"}
+    if slot == "morning":
+        return {"nickname": "Утренний настройщик", "tagline": "Музыка раньше кофе", "emoji": "☀️"}
+    if explorer_score > 0.4:
+        return {"nickname": "Активный исследователь", "tagline": "Плейлист всегда можно обновить", "emoji": "🗺️"}
+    if style == "obsessive":
+        return {"nickname": "Музыкальный одержимый", "tagline": "Один трек. Снова. Снова. Снова", "emoji": "🔁"}
+    return {"nickname": "Сбалансированный меломан", "tagline": "Всему своё время и своя музыка", "emoji": "🎵"}
+
+
 def build_wrapped_data(payload: dict, narrative_sections: list | None = None) -> dict:
     features = payload.get("features", {})
     username = payload.get("user", "")
@@ -205,8 +247,9 @@ def build_wrapped_data(payload: dict, narrative_sections: list | None = None) ->
         })
 
     return {
-        "user":    username,
-        "period":  period,
+        "user":      username,
+        "period":    period,
+        "archetype": compute_archetype(features),
         "scrobbles": scrobbles,
         "per_day": per_day,
         "time_signature": {
