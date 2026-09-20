@@ -16,8 +16,10 @@ Start with:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -28,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -36,13 +38,58 @@ from pydantic import BaseModel
 from frontend.render import build_wrapped_data
 
 app = FastAPI(title="AI-Wrapped")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ── configuration (env-driven, safe defaults) ────────────────────────────────
+# CORS is opt-in: the app is served same-origin from GET /, so no cross-origin
+# access is needed by default. Set ALLOWED_ORIGINS to a comma-separated list to
+# enable it (e.g. when the frontend is hosted separately). Previously this was
+# a wildcard "*", which let any site drive the pipeline on the server's keys.
+_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if _ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware, allow_origins=_ALLOWED_ORIGINS,
+        allow_methods=["*"], allow_headers=["*"],
+    )
+
+# Optional shared-secret auth. If API_TOKEN is set, every /api/* call must send
+# a matching X-API-Token header. Unset (default) → no auth, for local use.
+_API_TOKEN = os.getenv("API_TOKEN")
+# Cap concurrent pipelines so a burst of requests can't spawn unbounded threads
+# that each do heavy network + LLM work.
+_MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT_JOBS", "4"))
+_pipeline_sem = threading.Semaphore(_MAX_CONCURRENT)
+# Cap retained jobs so the in-memory store can't grow without bound.
+_MAX_JOBS = int(os.getenv("MAX_JOBS", "200"))
+# Last.fm usernames are alphanumeric plus _ and -; anything else is rejected so
+# it can never be used as a path component to escape data/.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _require_auth(x_api_token: str | None = Header(default=None)) -> None:
+    """Enforce the shared-secret token when API_TOKEN is configured."""
+    if _API_TOKEN and x_api_token != _API_TOKEN:
+        raise HTTPException(401, "invalid or missing API token")
+
 
 # ── in-memory job store ──────────────────────────────────────────────────────
 # job: { status: pending|running|done|error, step: int, step_label: str,
-#        total: int, result: dict|None, error: str|None }
+#        total: int, result: dict|None, error: str|None, created_at: float }
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+
+
+def _prune_jobs() -> None:
+    """Evict oldest finished jobs when the store exceeds _MAX_JOBS."""
+    with _jobs_lock:
+        overflow = len(_jobs) - _MAX_JOBS
+        if overflow <= 0:
+            return
+        finished = sorted(
+            (jid for jid, j in _jobs.items() if j["status"] in ("done", "error")),
+            key=lambda jid: _jobs[jid].get("created_at", 0.0),
+        )
+        for jid in finished[:overflow]:
+            _jobs.pop(jid, None)
 
 
 def _set(job_id: str, **kw):
@@ -52,39 +99,32 @@ def _set(job_id: str, **kw):
 
 # ── pipeline runner ──────────────────────────────────────────────────────────
 
-def _run_pipeline(job_id: str, username: str, period_str: str, backend: str):
-    try:
-        _pipeline(job_id, username, period_str, backend)
-    except Exception as exc:
-        _set(job_id, status="error", error=str(exc))
+def _run_pipeline(job_id: str, username: str, period_str: str):
+    with _pipeline_sem:
+        try:
+            _pipeline(job_id, username, period_str)
+        except Exception as exc:
+            _set(job_id, status="error", error=str(exc))
 
 
 def _step(job_id, n, label):
     _set(job_id, step=n, step_label=label)
 
 
-def _pipeline(job_id: str, username: str, period_str: str, backend: str):
+def _pipeline(job_id: str, username: str, period_str: str):
     import re
     from datetime import datetime
 
     from src.lastfm.client import LastFMClient
-    from src.lastfm.cache import fetch_or_update
+    from src.lastfm.cache import fetch_or_update, fetch_scrobbles_incremental
     from src.lastfm.parser import (
-        parse_scrobbles, parse_top_artists, parse_top_tracks, parse_top_albums,
+        parse_scrobbles, parse_top_artists, parse_top_tracks,
     )
     from src.lastfm.sessions import detect_sessions
     from src.musicbrainz.client import MusicBrainzClient
     from src.acousticbrainz.client import AcousticBrainzClient
     from src.metadata.provider import resolve_track_metadata_cached
-    from src.features.decade import decade_fingerprint
-    from src.features.binge import binge_weeks
-    from src.features.time_profile import time_signature
-    from src.features.artist_loyalty import artist_loyalty
-    from src.features.discovery import discovery_rate
-    from src.features.neighbours import musical_roommates
-    from src.features.guilty_pleasures import guilty_pleasures
-    from src.features.listening_style import listening_style
-    from src.features.artifacts import year_artifacts
+    from src.features import compute_features
     from src.features.period import filter_df, last_n_days, year_period, Period
     from src.narrative.generate import generate_narrative, NarrativeError
 
@@ -102,22 +142,20 @@ def _pipeline(job_id: str, username: str, period_str: str, backend: str):
     lastfm = LastFMClient(api_key)
 
     # ── 1: profile ────────────────────────────────────────────────────────────
-    _step(job_id, 1, "Fetching scrobble history…")
+    _step(job_id, 1, "Fetching scrobble history… (first run may take a few minutes)")
 
-    info = fetch_or_update("info", lambda: lastfm.get_user_info(username),
-                           max_age_hours=24, cache_dir=user_cache)
-    fetch_or_update("top_artists_3month",
-                    lambda: lastfm.get_top_artists(username, period="3month", limit=50),
-                    cache_dir=user_cache)
+    # Fetching user info also validates that the username exists (raises early
+    # on an unknown user) before we do the expensive scrobble pull.
+    fetch_or_update("info", lambda: lastfm.get_user_info(username),
+                    max_age_hours=24, cache_dir=user_cache)
     raw_tracks = fetch_or_update("top_tracks_3month",
                                  lambda: lastfm.get_top_tracks(username, period="3month", limit=50),
                                  cache_dir=user_cache)
-    fetch_or_update("top_albums_3month",
-                    lambda: lastfm.get_top_albums(username, period="3month", limit=50),
-                    cache_dir=user_cache)
-    raw_all = fetch_or_update("all_scrobbles",
-                              lambda: lastfm.get_recent_tracks(username),
-                              max_age_hours=24, cache_dir=user_cache)
+    raw_all = fetch_scrobbles_incremental(
+        "all_scrobbles",
+        lambda from_ts=None: lastfm.get_recent_tracks(username, from_ts=from_ts),
+        cache_dir=user_cache,
+    )
 
     raw_artists = fetch_or_update("top_artists_3month",
                                   lambda: lastfm.get_top_artists(username, period="3month", limit=50),
@@ -164,19 +202,10 @@ def _pipeline(job_id: str, username: str, period_str: str, backend: str):
     top_artists_names = df_top_artists["artist"].tolist()
     all_artists = set(df_all["artist"].unique().tolist()) if not df_all.empty else set()
 
-    features = {
-        "decade_fingerprint": decade_fingerprint(metas),
-        "binge_weeks":        binge_weeks(df_all),
-        "time_signature":     time_signature(df_all),
-        "artist_loyalty":     artist_loyalty(df_all),
-        "discovery_rate":     discovery_rate(df_all),
-        "listening_style":    listening_style(df_all),
-        "guilty_pleasures":   guilty_pleasures(df_all),
-        "artifacts":          year_artifacts(df_all, sessions),
-        "musical_roommates":  musical_roommates(
-            top_artists_names, all_artists, lastfm.get_similar_artists,
-        ),
-    }
+    features = compute_features(
+        df_all, sessions, metas, top_artists_names, all_artists,
+        lastfm.get_similar_artists,
+    )
 
     # ── 4: narrative ──────────────────────────────────────────────────────────
     _step(job_id, 4, "Writing your story… (up to 5 min)")
@@ -190,7 +219,7 @@ def _pipeline(job_id: str, username: str, period_str: str, backend: str):
 
     narrative_sections = []
     try:
-        narr = generate_narrative(payload, voice="a", lang="ru", backend=backend)
+        narr = generate_narrative(payload, voice="a", lang="ru")
         narrative_sections = narr.sections
     except Exception as exc:
         # narrative failure is non-fatal — report without text
@@ -208,31 +237,35 @@ def _pipeline(job_id: str, username: str, period_str: str, backend: str):
 class GenerateRequest(BaseModel):
     username: str
     period: str = "last:90"
-    backend: str = "cli"
 
 
-@app.post("/api/generate")
+@app.post("/api/generate", dependencies=[Depends(_require_auth)])
 def generate(req: GenerateRequest):
-    if not req.username.strip():
+    username = req.username.strip()
+    if not username:
         raise HTTPException(400, "username required")
+    if not _USERNAME_RE.match(username):
+        raise HTTPException(400, "invalid username")
 
+    _prune_jobs()
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         _jobs[job_id] = {
             "status": "running", "step": 0, "step_label": "Starting…",
             "total": 5, "result": None, "error": None,
+            "created_at": time.time(),
         }
 
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(job_id, req.username.strip(), req.period, req.backend),
+        args=(job_id, username, req.period),
         daemon=True,
     )
     thread.start()
     return {"job_id": job_id}
 
 
-@app.get("/api/status/{job_id}")
+@app.get("/api/status/{job_id}", dependencies=[Depends(_require_auth)])
 def status(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -247,7 +280,7 @@ def status(job_id: str):
     }
 
 
-@app.get("/api/result/{job_id}")
+@app.get("/api/result/{job_id}", dependencies=[Depends(_require_auth)])
 def result(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -266,4 +299,8 @@ def index():
 # ── dev entry point ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("frontend.server:app", host="0.0.0.0", port=8000, reload=False)
+    # Bind loopback by default; override with HOST=0.0.0.0 only behind an
+    # authenticated reverse proxy (set API_TOKEN too).
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("frontend.server:app", host=host, port=port, reload=False)

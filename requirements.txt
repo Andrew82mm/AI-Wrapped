@@ -1,8 +1,13 @@
-requests
-python-dotenv
-pandas
-pytest
-pytest-mock
-fastapi
-httpx
-hypothesis
+# Runtime dependencies (version floors pinned for reproducibility; upper
+# bounds guard against breaking major releases).
+requests>=2.32,<3
+python-dotenv>=1.0,<2
+pandas>=2.2,<4
+fastapi>=0.115,<1
+uvicorn>=0.30,<1      # ASGI server for frontend/server.py (was missing)
+
+# Test dependencies
+pytest>=8,<10
+pytest-mock>=3.14
+httpx>=0.27,<1        # required by fastapi.testclient
+hypothesis>=6.100

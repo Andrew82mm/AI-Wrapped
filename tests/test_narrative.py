@@ -9,16 +9,12 @@ import pytest
 from src.narrative.context import build_allowed_names, build_context
 from src.narrative.prompt import system_prompt, user_prompt, VOICES, LANGS
 from src.narrative.verify import verify_names
-import subprocess
-
-import subprocess
 
 from src.narrative.generate import (
     Narrative,
     NarrativeError,
     _extract_json,
-    _call_claude_cli,
-    _call_openrouter,
+    _call_chat_completions,
     generate_narrative,
 )
 
@@ -220,8 +216,9 @@ def test_generate_narrative_returns_unverified_after_max_retries():
 
 
 def test_generate_narrative_raises_without_api_key(monkeypatch):
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(NarrativeError, match="OPENROUTER_API_KEY"):
+    for var in ("LLM_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(NarrativeError, match="LLM API key"):
         generate_narrative({"features": {}})
 
 
@@ -244,75 +241,9 @@ def test_narrative_as_text_renders_sections_as_markdown():
     assert "## T2" in text and "B2" in text
 
 
-# --- _call_claude_cli --------------------------------------------------------
-
-def _mock_completed_process(stdout: str = "", returncode: int = 0, stderr: str = ""):
-    p = subprocess.CompletedProcess(args=[], returncode=returncode)
-    p.stdout = stdout
-    p.stderr = stderr
-    return p
-
-
-def test_call_claude_cli_returns_stdout():
-    output = '{"sections": [], "artists_mentioned": []}'
-    with patch("src.narrative.generate.subprocess.run",
-               return_value=_mock_completed_process(stdout=output)):
-        with patch("src.narrative.generate.os.path.exists", return_value=True):
-            result = _call_claude_cli("sys", "usr", timeout=30)
-    assert result == output
-
-
-def test_call_claude_cli_raises_on_nonzero_returncode():
-    with patch("src.narrative.generate.subprocess.run",
-               return_value=_mock_completed_process(returncode=1, stderr="error")):
-        with patch("src.narrative.generate.os.path.exists", return_value=True):
-            with pytest.raises(NarrativeError, match="Claude CLI error"):
-                _call_claude_cli("sys", "usr", timeout=30)
-
-
-def test_call_claude_cli_raises_on_timeout():
-    with patch("src.narrative.generate.subprocess.run",
-               side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=30)):
-        with patch("src.narrative.generate.os.path.exists", return_value=True):
-            with pytest.raises(NarrativeError, match="timed out"):
-                _call_claude_cli("sys", "usr", timeout=30)
-
-
-def test_call_claude_cli_raises_when_binary_missing():
-    with patch("src.narrative.generate.os.path.exists", return_value=False):
-        with pytest.raises(NarrativeError, match="not found"):
-            _call_claude_cli("sys", "usr", timeout=30)
-
-
-# --- generate_narrative with CLI backend ------------------------------------
-
-def test_generate_narrative_cli_backend_happy_path():
-    output = _valid_model_output()
-    with patch("src.narrative.generate.os.path.exists", return_value=True):
-        with patch("src.narrative.generate.subprocess.run",
-                   return_value=_mock_completed_process(stdout=output)):
-            narr = generate_narrative(
-                {"user": "u", "features": SAMPLE_FEATURES},
-                backend="cli",
-            )
-    assert len(narr.sections) == 1
-    assert narr.verify.ok
-
-
-def test_generate_narrative_cli_backend_propagates_timeout():
-    with patch("src.narrative.generate.os.path.exists", return_value=True):
-        with patch("src.narrative.generate.subprocess.run",
-                   side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=300)):
-            with pytest.raises(NarrativeError, match="timed out"):
-                generate_narrative(
-                    {"user": "u", "features": SAMPLE_FEATURES},
-                    backend="cli",
-                )
-
-
 # --- 429 retry logic ---------------------------------------------------------
 
-def test_openrouter_retries_on_429_then_succeeds():
+def test_chat_completions_retries_on_429_then_succeeds():
     good_resp = _mk_response({"choices": [{"message": {"content": _valid_model_output()}}]})
 
     class RateLimit:
@@ -325,12 +256,11 @@ def test_openrouter_retries_on_429_then_succeeds():
 
     with patch("src.narrative.generate.requests.post", side_effect=responses):
         with patch("src.narrative.generate.time.sleep"):
-            narr = generate_narrative(payload, api_key="k",
-                                      backend="openrouter")
+            narr = generate_narrative(payload, api_key="k")
     assert narr.verify.ok
 
 
-def test_openrouter_raises_after_all_retries_exhausted():
+def test_chat_completions_raises_after_all_retries_exhausted():
     class RateLimit:
         status_code = 429
         text = "rate limited"
@@ -340,9 +270,21 @@ def test_openrouter_raises_after_all_retries_exhausted():
                side_effect=[RateLimit()] * 10):
         with patch("src.narrative.generate.time.sleep"):
             with pytest.raises(NarrativeError, match="429"):
-                _call_openrouter(
+                _call_chat_completions(
                     "sys", "usr",
+                    url="http://example.test/v1/chat/completions",
                     api_key="k", model="m",
                     temperature=0.8, timeout=10,
                     rate_limit_retries=2,
                 )
+
+
+def test_generate_narrative_uses_configurable_base_url(monkeypatch):
+    """LLM_BASE_URL / base_url should determine the endpoint that is POSTed to."""
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    api_resp = _mk_response({"choices": [{"message": {"content": _valid_model_output()}}]})
+    payload = {"user": "u", "features": SAMPLE_FEATURES}
+    with patch("src.narrative.generate.requests.post", return_value=api_resp) as post:
+        generate_narrative(payload, api_key="k")
+    called_url = post.call_args.args[0] if post.call_args.args else post.call_args.kwargs["url"]
+    assert called_url == "http://localhost:11434/v1/chat/completions"

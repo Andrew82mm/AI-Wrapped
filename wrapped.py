@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timedelta
@@ -36,20 +37,12 @@ from src.lastfm.cache import fetch_or_update
 from src.lastfm.parser import (
     parse_scrobbles, parse_top_artists, parse_top_tracks, parse_top_albums,
 )
-from src.lastfm.sessions import detect_sessions, sessions_to_df, find_patterns
+from src.lastfm.sessions import detect_sessions
 from src.musicbrainz.client import MusicBrainzClient
 from src.acousticbrainz.client import AcousticBrainzClient
 from src.metadata.provider import resolve_track_metadata_cached
 
-from src.features.decade import decade_fingerprint
-from src.features.binge import binge_weeks
-from src.features.time_profile import time_signature
-from src.features.artist_loyalty import artist_loyalty
-from src.features.discovery import discovery_rate
-from src.features.neighbours import musical_roommates
-from src.features.guilty_pleasures import guilty_pleasures
-from src.features.listening_style import listening_style
-from src.features.artifacts import year_artifacts
+from src.features import compute_features
 from src.features.period import Period, filter_df, year_period, last_n_days
 
 from src.narrative.generate import generate_narrative, NarrativeError
@@ -227,19 +220,10 @@ def run_features(
     top_artists_names = df_top_artists["artist"].tolist()
     all_artists = set(df_all["artist"].unique().tolist()) if not df_all.empty else set()
 
-    features = {
-        "decade_fingerprint": decade_fingerprint(track_metas),
-        "binge_weeks":        binge_weeks(df_all),
-        "time_signature":     time_signature(df_all),
-        "artist_loyalty":     artist_loyalty(df_all),
-        "discovery_rate":     discovery_rate(df_all),
-        "listening_style":    listening_style(df_all),
-        "guilty_pleasures":   guilty_pleasures(df_all),
-        "artifacts":          year_artifacts(df_all, sessions),
-        "musical_roommates":  musical_roommates(
-            top_artists_names, all_artists, lastfm.get_similar_artists,
-        ),
-    }
+    features = compute_features(
+        df_all, sessions, track_metas, top_artists_names, all_artists,
+        lastfm.get_similar_artists,
+    )
 
     if verbose:
         for name, result in features.items():
@@ -287,10 +271,6 @@ def main(argv: list[str] | None = None) -> int:
         help="write generated narrative (markdown) to this path",
     )
     parser.add_argument(
-        "--backend", default="openrouter", choices=("openrouter", "cli"),
-        help="LLM backend: openrouter (default) or cli (local claude binary, no API key needed)",
-    )
-    parser.add_argument(
         "--user", default=None,
         help="Last.fm username (overrides LASTFM_USERNAME from .env; prompts if neither is set)",
     )
@@ -319,6 +299,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not all([api_key, mb_contact]):
         print("Missing env vars — set LASTFM_API_KEY, MUSICBRAINZ_CONTACT in .env",
+              file=sys.stderr)
+        return 2
+
+    # Reject usernames that aren't a safe single path component, so `--user`
+    # (or LASTFM_USERNAME) can't be used to escape data/ via `../`.
+    if not re.match(r"^[A-Za-z0-9_-]{1,64}$", username):
+        print(f"Invalid username: {username!r} (allowed: letters, digits, _ and -)",
               file=sys.stderr)
         return 2
 
@@ -377,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
             "features": features,
         }
         try:
-            narr = generate_narrative(payload, voice=args.voice, lang=args.lang, backend=args.backend)
+            narr = generate_narrative(payload, voice=args.voice, lang=args.lang)
         except NarrativeError as e:
             print(f"[narrative] failed: {e}", file=sys.stderr)
             return 1

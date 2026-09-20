@@ -1,10 +1,14 @@
+from urllib.parse import quote
+
 import requests
+
+from src.common.http import BaseHTTPClient
 
 
 BASE_URL = "https://acousticbrainz.org"
 
 
-class AcousticBrainzClient:
+class AcousticBrainzClient(BaseHTTPClient):
     """Client for the AcousticBrainz public API.
 
     AcousticBrainz was frozen in 2022: no new submissions are accepted,
@@ -12,29 +16,21 @@ class AcousticBrainzClient:
     common, expected outcome — callers get None rather than an exception.
     """
 
-    def __init__(self):
-        """Initialise a shared requests session for all AB calls."""
-        self.session = requests.Session()
-
     def _get(self, path: str) -> dict | None:
         """GET a path from the AB API, returning None on 404."""
-        resp = self.session.get(f"{BASE_URL}/{path}")
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json()
+        return self._get_json(f"{BASE_URL}/{path}", allow_404=True)
 
     def get_high_level(self, mbid: str) -> dict | None:
         """High-level features: mood, danceability, genre_* classifiers."""
         try:
-            return self._get(f"{mbid}/high-level")
+            return self._get(f"{quote(mbid, safe='')}/high-level")
         except requests.HTTPError:
             return None
 
     def get_low_level(self, mbid: str) -> dict | None:
         """Low-level features: bpm, key, loudness, spectral stats."""
         try:
-            return self._get(f"{mbid}/low-level")
+            return self._get(f"{quote(mbid, safe='')}/low-level")
         except requests.HTTPError:
             return None
 

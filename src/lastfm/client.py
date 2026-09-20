@@ -5,6 +5,9 @@ import requests
 BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 _RETRY_STATUSES = {500, 502, 503, 504}
 _MAX_RETRIES = 4
+# (connect, read) seconds — without this a stalled socket hangs the whole
+# pipeline indefinitely (a job would sit in "running" forever).
+_TIMEOUT = (10, 30)
 
 
 class LastFMClient:
@@ -29,7 +32,7 @@ class LastFMClient:
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES):
             try:
-                response = self.session.get(BASE_URL, params=req_params)
+                response = self.session.get(BASE_URL, params=req_params, timeout=_TIMEOUT)
                 if response.status_code in _RETRY_STATUSES:
                     raise requests.HTTPError(
                         f"{response.status_code} Server Error", response=response
@@ -39,7 +42,10 @@ class LastFMClient:
                 if "error" in data:
                     raise ValueError(f"Last.fm API error {data['error']}: {data['message']}")
                 return data
-            except requests.HTTPError as exc:
+            except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as exc:
+                # Retry transient network/server errors (5xx, dropped
+                # connections, timeouts). API-level errors raise ValueError
+                # above and are not retried.
                 last_exc = exc
                 if attempt < _MAX_RETRIES - 1:
                     time.sleep(2 ** attempt)  # 1s, 2s, 4s
@@ -164,6 +170,8 @@ class LastFMClient:
         try:
             data = self._get("artist.getTopTags", artist=artist)
             tags = data["toptags"]["tag"]
+            if isinstance(tags, dict):  # single-tag responses come back as a dict
+                tags = [tags]
             counts = [int(t["count"]) for t in tags]
             if not counts:
                 return []

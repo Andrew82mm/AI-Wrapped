@@ -174,7 +174,7 @@ class TestJobLifecycle:
     def test_full_flow(self):
         result_payload = {"user": "alice", "scrobbles": 99}
 
-        def fake_pipeline(job_id, username, period, backend):
+        def fake_pipeline(job_id, username, period):
             _inject_job(job_id, status="done", step=5, step_label="Done",
                         result=result_payload)
 

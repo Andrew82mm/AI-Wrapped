@@ -1,10 +1,10 @@
-import requests
+from src.common.http import BaseHTTPClient
 
 
 BASE_URL = "https://api.genius.com"
 
 
-class GeniusClient:
+class GeniusClient(BaseHTTPClient):
     """Minimal Genius API client.
 
     Genius is used not for audio features (it has none) but as a source
@@ -15,19 +15,15 @@ class GeniusClient:
 
     def __init__(self, access_token: str):
         """Initialise the session with the Genius Bearer token."""
-        self.session = requests.Session()
-        self.session.headers.update({
+        super().__init__(headers={
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
         })
 
     def _get(self, path: str, **params) -> dict | None:
         """GET a Genius endpoint, returning the inner response dict or None on 404."""
-        resp = self.session.get(f"{BASE_URL}/{path}", params=params)
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json().get("response")
+        data = self._get_json(f"{BASE_URL}/{path}", params=params, allow_404=True)
+        return data.get("response") if data else None
 
     def search_song(self, artist: str, track: str) -> dict | None:
         """Search Genius and return the top hit for (artist, track), or None.

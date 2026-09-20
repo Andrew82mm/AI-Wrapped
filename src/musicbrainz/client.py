@@ -1,6 +1,10 @@
 import threading
 import time
+from urllib.parse import quote
+
 import requests
+
+from src.common.http import BaseHTTPClient
 
 
 BASE_URL = "https://musicbrainz.org/ws/2"
@@ -12,7 +16,7 @@ _mb_lock = threading.Lock()
 _mb_last_request_at: float = 0.0
 
 
-class MusicBrainzClient:
+class MusicBrainzClient(BaseHTTPClient):
     """Thin client over the MusicBrainz web service.
 
     A descriptive User-Agent with a contact is required by MB policy.
@@ -26,8 +30,7 @@ class MusicBrainzClient:
         contact must be an email or URL per MusicBrainz policy; without it
         requests may be blocked.
         """
-        self.session = requests.Session()
-        self.session.headers.update({
+        super().__init__(headers={
             "User-Agent": f"{app_name}/{app_version} ( {contact} )",
             "Accept": "application/json",
         })
@@ -49,9 +52,7 @@ class MusicBrainzClient:
         """Throttle, then GET a MusicBrainz endpoint, returning parsed JSON."""
         self._throttle()
         params.setdefault("fmt", "json")
-        resp = self.session.get(f"{BASE_URL}/{path}", params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return self._get_json(f"{BASE_URL}/{path}", params=params)
 
     def search_recording(self, artist: str, track: str) -> dict | None:
         """Find the best matching recording for (artist, track).
@@ -82,7 +83,10 @@ class MusicBrainzClient:
     def get_recording(self, mbid: str) -> dict | None:
         """Fetch a recording by MBID, including releases and tags."""
         try:
-            return self._get(f"recording/{mbid}", inc="releases+tags+artist-credits")
+            # `mbid` may originate from Last.fm scrobble data; URL-encode it so
+            # it cannot alter the request path.
+            return self._get(f"recording/{quote(mbid, safe='')}",
+                             inc="releases+tags+artist-credits")
         except requests.HTTPError:
             return None
 

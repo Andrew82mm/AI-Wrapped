@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 
 
@@ -12,7 +12,13 @@ def parse_scrobbles(raw_tracks: list[dict]) -> pd.DataFrame:
     rows = []
     for t in raw_tracks:
         rows.append({
-            "timestamp": datetime.fromtimestamp(int(t["date"]["uts"])),
+            # Interpret the Last.fm UTC epoch as UTC wall-clock (tzinfo stripped
+            # to stay naive, like the rest of the pipeline). Previously this used
+            # local time via fromtimestamp(), making hour-of-day / session /
+            # weekday stats depend on the machine's timezone — non-reproducible.
+            "timestamp": datetime.fromtimestamp(
+                int(t["date"]["uts"]), tz=timezone.utc
+            ).replace(tzinfo=None),
             "track": t["name"],
             "artist": t["artist"]["#text"],
             "album": t["album"]["#text"],

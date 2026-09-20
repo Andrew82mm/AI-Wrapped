@@ -281,9 +281,30 @@ def build_wrapped_data(payload: dict, narrative_sections: list | None = None) ->
     }
 
 
+def _json_for_script(data: dict) -> str:
+    """Serialise `data` for safe embedding inside an inline <script> block.
+
+    `json.dumps` does not escape `<`, `>` or `&`, so untrusted artist/track
+    strings (e.g. a track literally named ``</script><img onerror=...>``)
+    could break out of the surrounding <script> element and execute — a
+    stored-XSS sink at template.html's ``window.WRAPPED_DATA = ...``. We
+    escape those characters (and the JS-only line separators U+2028/U+2029)
+    to their ``\\uXXXX`` forms. These remain valid JSON *and* valid JS string
+    escapes, so the parsed object is byte-for-byte identical.
+    """
+    raw = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def render(payload: dict, narrative_sections: list | None, out_path: str) -> None:
     data = build_wrapped_data(payload, narrative_sections)
-    data_json = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    data_json = _json_for_script(data)
 
     template_path = Path(__file__).parent / "template.html"
     html = template_path.read_text(encoding="utf-8")

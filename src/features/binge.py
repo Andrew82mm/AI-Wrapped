@@ -32,28 +32,28 @@ def binge_weeks(df: pd.DataFrame, threshold_multiplier: float = 2.0) -> dict:
     median = weekly.median()
     threshold = median * threshold_multiplier
 
+    # Top artist per week in a single grouped pass. The previous version
+    # re-filtered the whole DataFrame once per week (O(weeks × rows)); this is
+    # O(rows) total.
+    top_artist_by_week = df.groupby("week")["artist"].agg(
+        lambda s: s.value_counts().idxmax()
+    )
+
     binge_mask = weekly > threshold
-    binge_data = []
-    for week, count in weekly[binge_mask].items():
-        top_artist = (
-            df[df["week"] == week]["artist"]
-            .value_counts()
-            .idxmax()
-        )
-        binge_data.append({
+    binge_data = [
+        {
             "week": week,
             "tracks": int(count),
             "vs_median": round(count / median, 1),
-            "top_artist": top_artist,
-        })
+            "top_artist": top_artist_by_week[week],
+        }
+        for week, count in weekly[binge_mask].items()
+    ]
 
     binge_data.sort(key=lambda x: x["tracks"], reverse=True)
     binge_weeks_set = {b["week"] for b in binge_data}
 
-    top_by_week = {
-        week: df[df["week"] == week]["artist"].value_counts().idxmax()
-        for week in weekly.index
-    }
+    top_by_week = top_artist_by_week
     weekly_data = [
         {
             "week": week,
