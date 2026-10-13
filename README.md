@@ -12,8 +12,15 @@ the whole picture to an LLM that writes a personal editorial — not
 from metal into Debussy, every time".
 
 <p align="center">
-  <img src="docs/main_menu_small.png" alt="AI-Wrapped welcome screen" width="420">
+  <img src="docs/demo.gif" alt="AI-Wrapped demo: from username to a full report" width="720">
 </p>
+
+<p align="center">
+  <img src="docs/main_menu_small.png" alt="Welcome screen" width="300">
+  &nbsp;&nbsp;
+  <img src="docs/share_card.png" alt="Shareable story card (1080×1920)" width="300">
+</p>
+<p align="center"><sub>Welcome screen · one-click shareable card. All data above is synthetic.</sub></p>
 
 ---
 
@@ -34,6 +41,9 @@ in the keys (see below); re-run it once they're set. Other modes:
 ./run.sh test                                   # run the test suite
 HOST=0.0.0.0 PORT=9000 ./run.sh web             # bind/port overrides
 ```
+
+No Last.fm account or API keys handy? Start the server and open
+`http://localhost:8000/?demo` to see a full report built from synthetic data.
 
 On the welcome screen you enter a Last.fm username and pick a time window
 (7 days → all time). The report generates in the background and streams

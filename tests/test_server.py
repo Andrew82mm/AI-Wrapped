@@ -200,3 +200,16 @@ class TestJobLifecycle:
         assert result_resp.json()["user"] == "alice"
 
         _remove_job(job_id)
+
+
+def test_demo_endpoint_returns_synthetic_report():
+    from fastapi.testclient import TestClient
+    from frontend.server import app
+
+    r = TestClient(app).get("/api/demo")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["user"] == "demo_listener"
+    assert d["period"]["label"] == "90 days"
+    assert len(d["narrative"]["sections"]) >= 4
+    assert d["artifacts"] and d["guilty_pleasures"]

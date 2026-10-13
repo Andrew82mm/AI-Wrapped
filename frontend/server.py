@@ -6,6 +6,7 @@ three endpoints the browser polls:
   POST /api/generate          { username, period }  → { job_id }
   GET  /api/status/{job_id}   → { status, step, step_label, total }
   GET  /api/result/{job_id}   → WRAPPED_DATA JSON (when status == "done")
+  GET  /api/demo              → synthetic report (open the UI at /?demo)
   GET  /                      → serves frontend/index.html
 
 Start with:
@@ -35,6 +36,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from frontend.demo import build_demo_report
 from frontend.render import build_wrapped_data
 
 app = FastAPI(title="AI-Wrapped")
@@ -289,6 +291,12 @@ def result(job_id: str):
     if job["status"] != "done":
         raise HTTPException(400, f"job status is '{job['status']}'")
     return JSONResponse(job["result"])
+
+
+@app.get("/api/demo")
+def demo():
+    """Synthetic report (no Last.fm / LLM needed) — open the UI with /?demo."""
+    return JSONResponse(build_demo_report())
 
 
 @app.get("/")

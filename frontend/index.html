@@ -1059,7 +1059,7 @@ function downloadShareCard(d) {
 
   /* ── archetype ── */
   let y=144;
-  sectionLbl('ARCHETYPE',y); y+=50;
+  sectionLbl('ARCHETYPE',y); y+=80;  // 68px title needs room above its baseline
   const arc=d.archetype||{};
   y=textBlock(arc.nickname||'',PAD,y,W-PAD*2,68,'700',WHITE,84); y+=42;
   y=textBlock(arc.tagline||'',PAD,y,W-PAD*2,28,'400',DIM,40);   y+=66;
@@ -1334,6 +1334,12 @@ function App() {
     setErr(msg);
     setPhase('error');
   };
+
+  // /?demo → show a synthetic report without Last.fm / LLM access
+  useEffect(()=>{
+    if(!new URLSearchParams(window.location.search).has('demo')) return;
+    fetch('/api/demo').then(r=>r.json()).then(handleDone).catch(e=>handleError(e.message));
+  },[]);
 
   const reset=()=>{
     setPhase('welcome'); setJobId(null); setData(null); setErr('');
