@@ -1,5 +1,8 @@
 # AI-Wrapped
 
+[![CI](https://github.com/Andrew82mm/AI-Wrapped/actions/workflows/ci.yml/badge.svg)](https://github.com/Andrew82mm/AI-Wrapped/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+
 Spotify Wrapped, but with a narrative instead of numbers.
 
 Pulls your Last.fm listening history, enriches tracks with metadata from
@@ -95,10 +98,10 @@ Last.fm API
 MusicBrainz + AcousticBrainz
   ↓ MBID, release year, mood, BPM, genre
 Feature extraction
-  ↓ 9 behavioral signals (see below)
+  ↓ behavioral signals (see below)
 LLM (any OpenAI-compatible API)
   ↓ editorial narrative, verified against artist whitelist
-HTML report
+HTML report / web UI
 ```
 
 ### Features computed
@@ -126,7 +129,7 @@ src/
   acousticbrainz/ — mood, genre, BPM classifiers
   genius/       — release year fallback (optional)
   metadata/     — unified TrackMetadata resolver with full fallback chain
-  features/     — all 9 feature modules
+  features/     — behavioral feature modules
   narrative/    — prompt builder, LLM caller, hallucination verifier
 
 frontend/
@@ -135,7 +138,7 @@ frontend/
   template.html — static self-contained HTML report (via --html flag)
   render.py     — transforms feature JSON → frontend data format
 
-tests/          — 224 unit tests, no network calls
+tests/          — 242 unit tests, no network calls
 data/           — per-user cache (not in git): data/<username>/
 wrapped.py      — CLI entry point
 ```
@@ -152,11 +155,13 @@ selected purely through env vars — no code or flag changes:
 | OpenRouter (default) | `https://openrouter.ai/api/v1` | default model `nvidia/nemotron-3-super-120b-a12b:free` |
 | OpenAI | `https://api.openai.com/v1` | set `LLM_MODEL=gpt-4o` etc. |
 | Ollama / llama.cpp / vLLM | `http://localhost:11434/v1` | local, self-hosted |
+| LM Studio | `http://localhost:1234/v1` | local; set any non-empty `LLM_API_KEY` |
 
 `LLM_API_KEY` is the bearer token (falls back to `OPENROUTER_API_KEY` /
 `OPENAI_API_KEY` for backward compatibility); `LLM_MODEL` overrides the model
 (falls back to `OPENROUTER_MODEL`). Rate-limit (429) responses are retried with
-exponential backoff (up to 4×).
+exponential backoff (up to 4×). Servers that reject `response_format: json_object`
+(e.g. LM Studio) are handled automatically: the request is retried without it.
 
 ---
 
@@ -175,7 +180,7 @@ processed without collision. Cache TTL:
 
 ```bash
 venv/bin/pytest tests/ -q
-# 224 tests, ~9s, no network calls
+# 242 tests, ~6s, no network calls
 ```
 
 Integration tests (real API calls) are in `test_metadata_integration.py`
