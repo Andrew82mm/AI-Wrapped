@@ -118,6 +118,12 @@ def _call_chat_completions(
                   f"(attempt {attempt + 1}/{rate_limit_retries})...")
             time.sleep(wait)
             continue
+        if (resp.status_code == 400 and "response_format" in payload
+                and "response_format" in resp.text):
+            # Some servers (e.g. LM Studio) don't support json_object mode;
+            # the prompt already demands JSON and _extract_json parses it.
+            del payload["response_format"]
+            continue
         if resp.status_code != 200:
             raise NarrativeError(
                 f"LLM API {resp.status_code}: {resp.text[:500]}"
