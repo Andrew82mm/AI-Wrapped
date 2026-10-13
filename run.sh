@@ -18,17 +18,31 @@ PY="$VENV/bin/python"
 REQ_STAMP="$VENV/.requirements-installed"
 
 # ── 1. virtualenv ────────────────────────────────────────────────────────────
+# The stamp records "<python version>|<requirements hash>". If either changes
+# (python upgraded, requirements edited) or the venv is broken, we rebuild
+# instead of trusting a stale or half-installed environment.
+SYS_PY_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
+REQ_HASH="$(sha256sum requirements.txt | cut -d' ' -f1)"
+WANT_STAMP="$SYS_PY_VERSION|$REQ_HASH"
+HAVE_STAMP="$(cat "$REQ_STAMP" 2>/dev/null || true)"
+
+if [[ -d "$VENV" && "${HAVE_STAMP%%|*}" != "$SYS_PY_VERSION" ]]; then
+  echo "→ python version changed or venv not set up cleanly — recreating virtualenv…"
+  rm -rf "$VENV"
+  HAVE_STAMP=""
+fi
+
 if [[ ! -x "$PY" ]]; then
   echo "→ creating virtualenv ($VENV)…"
   python3 -m venv "$VENV"
 fi
 
 # ── 2. dependencies (only reinstall when requirements.txt changes) ───────────
-if [[ ! -f "$REQ_STAMP" || requirements.txt -nt "$REQ_STAMP" ]]; then
+if [[ "$HAVE_STAMP" != "$WANT_STAMP" ]]; then
   echo "→ installing dependencies…"
   "$PY" -m pip install --quiet --upgrade pip
   "$PY" -m pip install --quiet -r requirements.txt
-  touch "$REQ_STAMP"
+  echo "$WANT_STAMP" > "$REQ_STAMP"
 fi
 
 # ── 3. .env ──────────────────────────────────────────────────────────────────

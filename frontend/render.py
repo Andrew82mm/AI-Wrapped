@@ -37,7 +37,9 @@ _DECADE_COLORS = {
 def _period_meta(period_str: str) -> dict:
     if period_str == "lifetime":
         return {"label": "All time", "days": None}
-    m = re.match(r"last:(\d+)", period_str)
+    # "last:90" is the request format; "last_90d" is Period.name as emitted by
+    # the server pipeline — accept both.
+    m = re.match(r"last[:_](\d+)d?$", period_str)
     if m:
         days = int(m.group(1))
         labels = {7: "7 days", 30: "30 days", 90: "90 days",

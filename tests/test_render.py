@@ -40,6 +40,12 @@ class TestPeriodMeta:
         assert r["label"] == "45 days"
         assert r["days"] == 45
 
+    def test_period_name_from_server_pipeline(self):
+        # server.py emits Period.name ("last_90d"), not the request string
+        r = _period_meta("last_90d")
+        assert r["label"] == "90 days"
+        assert r["days"] == 90
+
     def test_year(self):
         r = _period_meta("2025")
         assert r["label"] == "2025"

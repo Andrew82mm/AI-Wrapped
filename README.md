@@ -11,6 +11,10 @@ the whole picture to an LLM that writes a personal editorial — not
 "you listened to 47 rock tracks", but "on Wednesday evenings you drift
 from metal into Debussy, every time".
 
+<p align="center">
+  <img src="docs/main_menu_small.png" alt="AI-Wrapped welcome screen" width="420">
+</p>
+
 ---
 
 ## Quick start — one command
